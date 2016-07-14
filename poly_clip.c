@@ -43,6 +43,9 @@
 */
 
 int poly_clip( Polygon *pp, long qx, long qy,
+               Polygon *ret, short edge);
+
+int poly_clip( Polygon *pp, long qx, long qy,
                Polygon *ret, short edge)
      
 {
@@ -255,6 +258,16 @@ int poly_clip( Polygon *pp, long qx, long qy,
 
 }
 
+
+
+void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_poly, long mm, long nn ) 
+{
+    /* intersect polygons ; once for each side of the rectangle*/
+    poly_clip( ref_poly,      mm, nn, tmp_clip_poly ,LEFT );
+    poly_clip( tmp_clip_poly, mm, nn, clip_poly     ,RIGHT );
+    poly_clip( clip_poly,     mm, nn, tmp_clip_poly ,BOTTOM );
+    poly_clip( tmp_clip_poly, mm, nn, clip_poly     ,TOP );
+}
 
 
 

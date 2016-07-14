@@ -102,7 +102,6 @@ int check_coords( CoordType ctype, WCS_Descriptors descs );
 Image *load_image_file( dmBlock *inBlock );
 int make_polygon(int subpix, Polygon *poly);
 int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
-void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_poly, long mm, long nn ) ;
 Parameters* get_parameters(void);
 Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBlock, double **out_data);
 Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Header_Type **hdr, WCS_Descriptors *descs  );
@@ -335,7 +334,7 @@ double get_contour_area( Polygon *clip_poly )
 
 
 /*
-  Okay has nothing to do wtih 'chip''s 
+  Okay has nothing to do with 'chip''s 
 
   This is a routine that does the inverse of the bulk of the rest of the
   processing.  It maps the input image corners to the output image.
@@ -496,16 +495,6 @@ int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_mi
     }
 
     return(0);
-}
-
-
-void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_poly, long mm, long nn ) 
-{
-    /* intersect polygons ; once for each side of the rectangle*/
-    poly_clip( ref_poly,      mm, nn, tmp_clip_poly ,LEFT );
-    poly_clip( tmp_clip_poly, mm, nn, clip_poly     ,RIGHT );
-    poly_clip( clip_poly,     mm, nn, tmp_clip_poly ,BOTTOM );
-    poly_clip( tmp_clip_poly, mm, nn, clip_poly     ,TOP );
 }
 
 

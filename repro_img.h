@@ -26,7 +26,7 @@ typedef enum { LEFT=1, RIGHT=2, BOTTOM=3, TOP=4 } EdgeType;
 
 extern int resample_img(void);
 
-extern int poly_clip( Polygon *pp, long qx, long qy,
-               Polygon *ret, short edge);
+extern void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_poly, long mm, long nn ) ;
+
 
 
