@@ -58,7 +58,20 @@ typedef struct {
 } Image;
 
 
-
+typedef struct {
+  char instack[DS_SZ_PATHNAME];  /* Input stack of images */
+  char reffile[DS_SZ_PATHNAME];  /* match file */
+  char outfile[DS_SZ_PATHNAME];  /* output file */
+  short clobber;
+  short verbose;
+  int subpix;
+  char lookup[DS_SZ_PATHNAME];
+  short do_norm;
+  char which_norm[30];
+  char csys[30];
+  CoordType ctype;
+    
+} Parameters;
 
 
 
@@ -90,6 +103,9 @@ Image *load_image_file( dmBlock *inBlock );
 int make_polygon(int subpix, Polygon *poly);
 int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
 void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_poly, long mm, long nn ) ;
+Parameters* get_parameters(void);
+Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBlock, double **out_data);
+Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Header_Type **hdr, WCS_Descriptors *descs  );
 
 
 // --------------------------
@@ -190,11 +206,6 @@ int convert_coords( double *refpix,
 
 /*
    Okay, now we are down to the real reproject_image* code.
-
-*/
-
-
-/*
 
   This routine is used to make a polygon around the square output pixel.  
 
@@ -498,7 +509,133 @@ void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_p
 }
 
 
+Parameters *get_parameters(void)
+{
+  Parameters *pars = (Parameters*)calloc(1,sizeof(Parameters));
+    
 
+  /* Get the parameters */
+  clgetstr( "infile", pars->instack, DS_SZ_FNAME );
+  clgetstr( "matchfile", pars->reffile, DS_SZ_FNAME );
+  clgetstr( "outfile", pars->outfile, DS_SZ_FNAME );
+  pars->subpix = clgeti("resolution");
+  clgetstr("method", pars->which_norm, 29);
+  clgetstr("coord_sys", pars->csys, 29);
+  clgetstr( "lookupTab", pars->lookup, DS_SZ_FNAME);
+  pars->clobber = clgetb( "clobber" );
+  pars->verbose = clgeti( "verbose" );
+  
+  if ( pars->verbose ) {  
+    printf("resample_image - parameters\n");
+    printf("%15s = %-s\n", "infile", pars->instack );
+    printf("%15s = %-s\n", "matchfile", pars->reffile );
+    printf("%15s = %-s\n", "outfile", pars->outfile );
+    printf("%15s = %d\n", "resolution", pars->subpix );
+    printf("%15s = %-s\n", "method", pars->which_norm );
+    printf("%15s = %-s\n", "coord_sys", pars->csys );
+    printf("%15s = %-s\n", "lookupTab", pars->lookup );
+    printf("%15s = %-s\n", "clobber", (pars->clobber ? "yes" : "no") );
+    printf("%15s = %d\n", "verbose", pars->verbose );
+  }
+
+  if ( ( strlen( pars->reffile) == 0 ) ||
+       ( ds_strcmp_cis(pars->reffile, "none" ) == 0 ) ) {
+
+    err_msg("ERROR: Must supply a valid match file\n");
+    return(NULL);
+   }
+
+  pars->do_norm =  ( strcmp( pars->which_norm, "sum" ) == 0 ) ? 0 : 1;
+
+  switch ( pars->csys[0] ) {
+    case 'l': pars->ctype = coordLOGICAL; break;
+    case 'p': pars->ctype = coordPHYSICAL; break;
+    case 'w': pars->ctype = coordWORLD; break;
+    default:
+      err_msg("ERROR: Unknow coordinate type '%s'\n", pars->csys );
+    return(NULL);
+  }
+
+  if ( ds_clobber( pars->outfile, pars->clobber, NULL ) != 0 ) {
+    return(NULL);
+  }
+
+  Stack inStack;
+  inStack = stk_build( pars->instack );
+  if ( ( NULL == inStack ) || ( stk_count(inStack)==0 ) ||
+       (( stk_count(inStack)==1 ) && ( strlen(stk_read_num(inStack,1))==0))) {
+    err_msg("ERROR: problems opening stack '%s'\n", pars->instack );
+    return(NULL);
+  }    
+
+
+
+  return(pars);
+    
+}
+
+
+
+Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBlock, double **out_data)
+{
+  Image *refImage;
+
+  if ( NULL == ( *refBlock = dmImageOpen( pars->reffile) ) ) {
+      err_msg("ERROR: Cannot open image '%s'\n", pars->reffile );
+      return(NULL);
+  }
+  
+  if ( NULL == ( refImage = load_image_file( *refBlock ))) {
+      err_msg("ERROR: Cannot open image '%s'\n", pars->reffile );
+      return(NULL);      
+  }
+
+
+  descs->ref.physical.xaxis = refImage->xdesc;
+  descs->ref.physical.yaxis = refImage->ydesc;
+  descs->ref.world.xaxis = dmDescriptorGetCoord( refImage->xdesc );
+  descs->ref.world.yaxis = dmDescriptorGetCoord( refImage->ydesc );
+
+  /* Alloc outptu data array */
+  *out_data = ( double*)calloc( refImage->lAxes[0]*refImage->lAxes[1], sizeof(double));
+
+
+  return(refImage);
+}
+
+
+Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Header_Type **hdr, WCS_Descriptors *descs  )
+{
+    Image *inImage;
+
+    if ( pars->verbose > 1 ) {
+      printf("\nProcessing input file '%s'\n", infile );
+    }
+     
+    /* Now load the image */
+    if ( NULL == ( *inBlock = dmImageOpen( infile) ) ) {
+      err_msg("ERROR: Cannot open image '%s'\n", infile );
+      return(NULL);
+    }
+
+    if ( NULL == ( inImage = load_image_file( *inBlock ))) {
+      err_msg("ERROR: Cannot open image '%s'\n", infile );
+      return(NULL);        
+    }
+    
+    *hdr = getHdr( *inBlock, hdrDM_FILE );
+
+    descs->image.physical.xaxis = inImage->xdesc;
+    descs->image.physical.yaxis = inImage->ydesc;
+    descs->image.world.xaxis = dmDescriptorGetCoord( inImage->xdesc );
+    descs->image.world.yaxis = dmDescriptorGetCoord( inImage->ydesc );
+    
+    if ( 0 != check_coords( pars->ctype, *descs ) ) {
+        return(NULL);
+    }
+
+    return(inImage);
+}
 
 
 
@@ -508,97 +645,27 @@ void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_p
 int resample_img(void)
 {
 
-  char instack[DS_SZ_PATHNAME];  /* Input stack of images */
-  char reffile[DS_SZ_PATHNAME];  /* match file */
-  char outfile[DS_SZ_PATHNAME];  /* output file */
-  short clobber;
-  short verbose;
-  int subpix;
-  char lookup[DS_SZ_PATHNAME];
-  short do_norm;
-  char which_norm[30];
-  char csys[30];
-  CoordType ctype = coordWORLD ;
-
-
-  /* Get the parameters */
-  clgetstr( "infile", instack, DS_SZ_FNAME );
-  clgetstr( "matchfile", reffile, DS_SZ_FNAME );
-  clgetstr( "outfile", outfile, DS_SZ_FNAME );
-  subpix = clgeti("resolution");
-  clgetstr("method", which_norm, 29);
-  clgetstr("coord_sys", csys, 29);
-  clgetstr( "lookupTab", lookup, DS_SZ_FNAME);
-  clobber = clgetb( "clobber" );
-  verbose = clgeti( "verbose" );
+  Parameters *pars;
   
-  if ( verbose ) {  
-    printf("resample_image - parameters\n");
-    printf("%15s = %-s\n", "infile", instack );
-    printf("%15s = %-s\n", "matchfile", reffile );
-    printf("%15s = %-s\n", "outfile", outfile );
-    printf("%15s = %d\n", "resolution", subpix );
-    printf("%15s = %-s\n", "method", which_norm );
-    printf("%15s = %-s\n", "coord_sys", csys );
-    printf("%15s = %-s\n", "lookupTab", lookup );
-    printf("%15s = %-s\n", "clobber", (clobber ? "yes" : "no") );
-    printf("%15s = %d\n", "verbose", verbose );
+  if ( NULL == ( pars = get_parameters())) {
+      return(-1); // error message internal
   }
 
-  if ( ( strlen( reffile) == 0 ) ||
-       ( ds_strcmp_cis(reffile, "none" ) == 0 ) ) {
 
-    err_msg("ERROR: Must supply a valid match file\n");
-    return(-1);
-   }
+  // ------------------------
 
-  do_norm =  ( strcmp( which_norm, "sum" ) == 0 ) ? 0 : 1;
-
-  switch ( csys[0] ) {
-    case 'l': ctype = coordLOGICAL; break;
-    case 'p': ctype = coordPHYSICAL; break;
-    case 'w': ctype = coordWORLD; break;
-    default:
-      err_msg("ERROR: Unknow coordinate type '%s'\n", csys );
-    return(-1);
-  }
-
-  /* ----------------------------- */
-
-
-  if ( ds_clobber( outfile, clobber, NULL ) != 0 ) {
-    return(-1);
-  }
-
-    // ------------------------
-
-
-
-
-  dmBlock *refBlock;
   Image *refImage;
-  if ( NULL == ( refBlock = dmImageOpen( reffile) ) ) {
-      err_msg("ERROR: Cannot open image '%s'\n", reffile );
+  WCS_Descriptors descs;
+  double *out_data;
+  dmBlock *refBlock;  
+  if ( NULL == (refImage = load_ref_image( pars, &descs, &refBlock, &out_data))) {
       return(-1);
   }
-  
-  if ( NULL == ( refImage = load_image_file( refBlock ))) {
-      err_msg("ERROR: Cannot open image '%s'\n", reffile );
-      return(-1);      
-  }
 
-
-  WCS_Descriptors descs;
-  descs.ref.physical.xaxis = refImage->xdesc;
-  descs.ref.physical.yaxis = refImage->ydesc;
-  descs.ref.world.xaxis = dmDescriptorGetCoord( refImage->xdesc );
-  descs.ref.world.yaxis = dmDescriptorGetCoord( refImage->ydesc );
-
-
-  /* Alloc outptu data array */
-  double *out_data;
-  out_data = ( double*)calloc( refImage->lAxes[0]*refImage->lAxes[1], sizeof(double));
-
+  Polygon ref_poly, clip_poly, tmp_clip_poly;    
+  make_polygon(pars->subpix, &ref_poly);
+  make_polygon(pars->subpix, &clip_poly);
+  make_polygon(pars->subpix, &tmp_clip_poly);
 
 
   /* Now let's start on the input stack */
@@ -606,56 +673,21 @@ int resample_img(void)
   long num_infiles;
   Header_Type **hdr;
 
-  inStack = stk_build( instack );
-  if ( ( NULL == inStack ) || ( stk_count(inStack)==0 ) ||
-       (( stk_count(inStack)==1 ) && ( strlen(stk_read_num(inStack,1))==0))) {
-    err_msg("ERROR: problems opening stack '%s'\n", instack );
-    return(-3);
-  }    
+  inStack = stk_build( pars->instack );
   num_infiles = stk_count(inStack);
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
   stk_rewind(inStack);
-
-
     
   char *infile;                  /* individual image in stack */
   while ( NULL != (infile = stk_read_next(inStack))) {
 
-    if ( verbose > 1 ) {
-      printf("\nProcessing input file '%s'\n", infile );
-    }
-    
-    
-    /* Now load the image */
-    dmBlock *inBlock;
     Image *inImage;
-    if ( NULL == ( inBlock = dmImageOpen( infile) ) ) {
-      err_msg("ERROR: Cannot open image '%s'\n", infile );
-      return(-1);
-    }
-
-    if ( NULL == ( inImage = load_image_file( inBlock ))) {
-      err_msg("ERROR: Cannot open image '%s'\n", infile );
-      return(-1);        
-    }
-    
-    hdr[--num_infiles] = getHdr( inBlock, hdrDM_FILE );
-
-    descs.image.physical.xaxis = inImage->xdesc;
-    descs.image.physical.yaxis = inImage->ydesc;
-    descs.image.world.xaxis = dmDescriptorGetCoord( inImage->xdesc );
-    descs.image.world.yaxis = dmDescriptorGetCoord( inImage->ydesc );
-    
-    if ( 0 != check_coords( ctype, descs ) ) {
+    dmBlock *inBlock;    
+    num_infiles--;
+    if ( NULL == ( inImage = load_infile_image( pars, infile, &inBlock, hdr+num_infiles, &descs ))) {
         return(-1);
     }
-
     
-    Polygon ref_poly, clip_poly, tmp_clip_poly;    
-    make_polygon(subpix, &ref_poly);
-    make_polygon(subpix, &clip_poly);
-    make_polygon(subpix, &tmp_clip_poly);
-
     /* Okay, we'll look to the input image and map the corners
        to the image in the output.  This way we only have to process those
        pixels in the output which could conver the input.  Should
@@ -665,28 +697,22 @@ int resample_img(void)
     find_chip_corners( &min_ref_x, &min_ref_y, &max_ref_x, &max_ref_y, 
                  refImage->lAxes, inImage->lAxes, &descs );
 
-    /* Begin loop through data */
+    /* Begin loop through output data pixels */
 
     long xx, yy;
     for(yy=min_ref_y;yy<max_ref_y;yy++) {
       long ypix_off;
-      ypix_off = yy*refImage->lAxes[0];
-
-      if ( verbose > 2 ) {
-        double perc = 100.0 * yy / max_ref_y;
-        printf("Processing %g%% complete        \r", perc );
-      }
+      ypix_off = yy*refImage->lAxes[0]; // outside x-loop to save computes
 
       for (xx=min_ref_x;xx<max_ref_x;xx++ ) {
         
         /* This creates a polygon around output pixel xx,yy */
-        fill_polygon( subpix, xx, yy,ref_poly.contour, &descs, ctype );
+        fill_polygon( pars->subpix, xx, yy,ref_poly.contour, &descs, pars->ctype );
         
         /* find the min and max pixels that need to intersect polygon with */
         long xx_min, xx_max, yy_min, yy_max;
         find_bounding_box( ref_poly, &xx_min, &xx_max, &yy_min, &yy_max );
         
-
         double weight;  
         double sum;
         weight  = 0;
@@ -696,10 +722,10 @@ int resample_img(void)
         long mm,nn;
         for (nn=yy_min;nn<=yy_max;nn++) {
           for (mm=xx_min;mm<=xx_max;mm++ ) {
-                    
             double area;
             double val;
 
+            /* clip polgon against the pixel */
             super_poly_clip( &ref_poly, &tmp_clip_poly, &clip_poly, mm, nn );
 
             /* area of polygon */
@@ -721,7 +747,7 @@ int resample_img(void)
         long outpix;
         outpix = ypix_off + xx;
         if ( weight > 0 ) {
-          if ( do_norm )
+          if ( pars->do_norm )
             out_data[outpix] += (sum/weight);
           else
             out_data[outpix] += sum;
@@ -731,13 +757,14 @@ int resample_img(void)
       } /* end for xx */
     } /* end for yy */
 
-    if ( verbose > 2 )  printf("Processing %g%% complete        \n", 100.0 );
+    if ( pars->verbose > 2 )  printf("Processing %g%% complete        \n", 100.0 );
 
 
     // TODO free(data);
     // TODO free(lAxes);
     // TODO if ( mask ) free(mask);
-    dmImageClose( inBlock );
+
+    dmImageClose( inBlock ); // Need to leave open to do coord x-forms
 
   }  /* end while infile loop over stack */
 
@@ -745,12 +772,12 @@ int resample_img(void)
   /* merge headers */
   num_infiles = stk_count( inStack );
   Header_Type *outhdr;
-  if (( (strlen( lookup ) == 0 ) ||
-        (ds_strcmp_cis(lookup, "none") ==0 )) ||
+  if (( (strlen( pars->lookup ) == 0 ) ||
+        (ds_strcmp_cis(pars->lookup, "none") ==0 )) ||
       ( num_infiles == 1 ) ) {
     outhdr = hdr[0];
   } else {
-    outhdr = mergeHdr( lookup, hdr, num_infiles );
+    outhdr = mergeHdr( pars->lookup, hdr, num_infiles );
   }
 
 
@@ -759,8 +786,8 @@ int resample_img(void)
   dmBlock *outBlock = NULL;
   dmDescriptor *outDesc;
   
-  if ( NULL == ( outBlock = dmImageCreate( outfile, dmDOUBLE,refImage->lAxes,2 ))){
-      err_msg("ERROR: Cannot create output image '%s'\n", outfile );
+  if ( NULL == ( outBlock = dmImageCreate( pars->outfile, dmDOUBLE,refImage->lAxes,2 ))){
+      err_msg("ERROR: Cannot create output image '%s'\n", pars->outfile );
       return(-1);
   }
   outDesc = dmImageGetDataDescriptor( outBlock );
@@ -769,7 +796,7 @@ int resample_img(void)
   dmBlockCopyWCS( refBlock, outBlock);
   dmSetArray_d( outDesc, out_data, refImage->lAxes[0]*refImage->lAxes[1]);
   dmImageClose(outBlock );
-  if ( outBlock != refBlock ) dmImageClose( refBlock );
+  dmImageClose( refBlock );
 
   return(0);
 
