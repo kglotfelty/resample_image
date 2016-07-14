@@ -20,6 +20,10 @@ OBJS	= $(SRCS:.c=.o)
 
 MAKETEST_SCRIPT = r
 
+LOCAL_INC 	= -I$(MK_TOP)/da/analysis/dmtools/dmimgio/
+LOCAL_LIBS 	= -L$(MK_TOP)/da/analysis/dmtools/dmimgio/ -ldmimgio
+
+
 
 include $(MK_TOP)/Makefile.all
 

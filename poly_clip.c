@@ -128,8 +128,6 @@ int poly_clip( Polygon *pp, long qx, long qy,
 
       break;
 
-
-
     }
 
     

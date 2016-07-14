@@ -46,6 +46,22 @@ typedef struct {
  } WCS_Descriptors;
 
 
+
+/* Hold info for an input image */
+typedef struct {
+  void *data;        // pixel values
+  dmDataType dt;     // pixel datatype
+  long *lAxes;       // axis lenghts
+  short *mask;        // mask of valid pixels
+  dmDescriptor *xdesc;  // X (or sky) coordinate descriptor
+  dmDescriptor *ydesc;  // Y coordinate descriptor
+} Image;
+
+
+
+
+
+
 /*
   All these get_ routines are pilfered from other (too be released) DM tools 
   that do some basic 2D image I/O.  Allows an arbitrary image data-type to be
@@ -71,345 +87,45 @@ int convert_coords( double *refpix,
                     CoordType ctype);
 
                        
+Image *load_image_file( dmBlock *inBlock );
 
 // --------------------------
 
-short *get_image_mask( dmBlock *inBlock, void *data, dmDataType dt, 
-                       long *lAxes, regRegion *dss, long null, short has_null, 
-                       dmDescriptor *xAxis, dmDescriptor *yAxis );
 
 
-double get_image_value( void *data, dmDataType dt, 
-                        long xx, long yy, long *lAxes, 
-                        short *mask );
-
-dmDataType get_image_data( dmBlock *inBlock, void **data, long **lAxes,
-                           regRegion **dss, long *nullval, short *nullset );
-
-
-short  get_image_wcs( dmBlock *imgBlock, dmDescriptor **xAxis, 
-                      dmDescriptor **yAxis );
-
-/*
-  This routine is used to look at the pixel values to see if they are
-  an integer NULL value, a floating point NaN, or if they happen to
-  fall outside the data sub space.  If any of these are true
-  the output mask will be 0 at that pixel location; otherwise it will be 1.
-
-*/
-short *get_image_mask( dmBlock *inBlock, void *data, dmDataType dt, 
-                       long *lAxes, regRegion *dss, long null, short has_null, 
-                       dmDescriptor *xAxis, dmDescriptor *yAxis )
+/* Load image file.  This uses the routines defined in dmimgio.h */
+#include <dmimgio.h>
+Image *load_image_file( dmBlock *inBlock )
 {
-  long npix = lAxes[0] * lAxes[1];
-  short *mask;
-  long xx, yy;
-  mask = (short*)calloc( npix, sizeof(short));
-
-  
-  for ( xx=lAxes[0]; xx--; ) {
-    for ( yy=lAxes[1]; yy--; ) {
-      double dat;
-      long idx;
-      idx = xx + ( yy * lAxes[0] );
-      
-      dat = get_image_value( data, dt, xx, yy, lAxes, NULL );
-      
-      /* Now ... if it is an integer data type, it could possibly have a
-         null value. Check for that */
-      if ( ( has_null && ( dat == null ) ) ||
-           ds_dNAN( dat ) ) {
-        continue;
-      }
-            
-      /* If the image has a data sub space (aka a region filter applied)
-         then need to convert coords to physical and check */
-      if ( dss && xAxis ) {
-        double pos[2];
-        double loc[2];
-        pos[0]=xx+1;
-        pos[1]=yy+1;
-        
-        if (yAxis) {  /* If no y axis, then xAxis has 2 components */
-          dmCoordCalc_d( xAxis, pos, loc );
-          dmCoordCalc_d( yAxis, pos+1, loc+1 );
-        } else {
-          dmCoordCalc_d( xAxis, pos, loc );
-        }
-        if ( !regInsideRegion( dss, loc[0], loc[1] ) )
-          continue;
-      }
-      
-      mask[idx] = 1;
-    }
-  }
-
-  return(mask );
-}
-
-
-
-/*
-  This routine is used to lookup the pixel values and check if the
-  pixel is in the mask or not.
-
-  If the pixel is off the image or outside DSS then it returns 0.
-
-*/
-
-double get_image_value( void *data, dmDataType dt, 
-                        long xx, long yy, long *lAxes, 
-                        short *mask )
-{
-
-  long npix = xx + (yy * lAxes[0] );
-  double retval;
-
-  /* Okay, first get all the data from the different data types.  
-     Cast everything to doubles */
-
-
-  if (( xx < 0 ) || ( xx >= lAxes[0] ) ||
-      ( yy < 0 ) || ( yy >= lAxes[1] )) {
-    return(0);
-  }
-
-
-
-  switch ( dt ) {
-    
-  case dmBYTE: {
-    unsigned char *img = (unsigned char*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmSHORT: {
-    short *img = (short*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmUSHORT: {
-    unsigned short *img = (unsigned short*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmLONG: {
-    long *img = (long*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmULONG: {
-    unsigned long *img = (unsigned long*)data;
-    retval = img[npix];
-    break;
-  }
-    
-  case dmFLOAT: {
-    float *img = (float*)data;
-    retval = img[npix];
-    break;
-  }
-  case dmDOUBLE: {
-    double *img = (double*)data;
-    retval = img[npix];
-    break;
-  }
-  default:
-    ds_MAKE_DNAN( retval );
-
-  }
-
-
-  if ( mask ) {
-    if ( !mask[npix] ) {
-      ds_MAKE_DNAN( retval );
-    }
-  }
-
-
-  return(retval);
-
-}
-
-
-/* Load the data into memory,  check for DSS, null values */
-dmDataType get_image_data( dmBlock *inBlock, void **data, long **lAxes,
-                           regRegion **dss, long *nullval, short *nullset )
-{
-
-  dmDescriptor *imgDesc;
   dmDataType dt;
-  dmDescriptor *grp;
-  dmDescriptor *imgdss;
+  void *data=NULL;
+  long *lAxes=NULL;
 
-  long naxes;
-  long npix;
-  char ems[1000];
+  regRegion *dss=NULL;
+  long null;
+  short has_null;
 
-  *nullval = INDEFL;
-  *dss = NULL;
-  *nullset = 0;
-  
-  imgDesc = dmImageGetDataDescriptor( inBlock );
+  short *mask=NULL;
+  dmDescriptor *xdesc=NULL;
+  dmDescriptor *ydesc=NULL;
 
-  /* Sanity check, only 2D images */
-  naxes = dmGetArrayDimensions( imgDesc, lAxes );
-  if ( naxes != 2 ) {
-    return( dmUNKNOWNTYPE );
-  }
-  npix = (*lAxes)[0] * (*lAxes)[1];
-  dt = dmGetDataType( imgDesc );
+  /* Read input */
 
+  dt = get_image_data( inBlock, &data, &lAxes, &dss, &null, &has_null );
+  get_image_wcs( inBlock, &xdesc, &ydesc );
+  mask = get_image_mask( inBlock, data, dt, lAxes, dss, null, has_null, 
+                         xdesc, ydesc );
 
-  /* Okay, first lets get the image descriptor */
-  grp = dmArrayGetAxisGroup( imgDesc, 1 );
-  dmGetName( grp, ems, 1000);
-  imgdss = dmSubspaceColOpen( inBlock, ems );
-  if ( imgdss )
-    *dss = dmSubspaceColGetRegion( imgdss);
-  
-  
-  switch ( dt ) 
-    {
-    case dmBYTE:
-      *data = ( void *)calloc( npix, sizeof(char ));
-      dmGetArray_ub( imgDesc, (unsigned char*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmSHORT:
-      *data = ( void *)calloc( npix, sizeof(short ));
-      dmGetArray_s( imgDesc, (short*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmUSHORT:
-      *data = ( void *)calloc( npix, sizeof(short ));
-      dmGetArray_us( imgDesc, (unsigned short*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmLONG:
-      *data = ( void *)calloc( npix, sizeof(long ));
-      dmGetArray_l( imgDesc, (long*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmULONG:
-      *data = ( void *)calloc( npix, sizeof(long ));
-      dmGetArray_ul( imgDesc, (unsigned long*) *data, npix );
-      if ( dmDescriptorGetNull_l( imgDesc, nullval) == 0 ) {
-        *nullset=0;
-      } else
-        *nullset=1;
-      break;
-      
-    case dmFLOAT:
-      *data = ( void *)calloc( npix, sizeof(float ));
-      dmGetArray_f( imgDesc, (float*) *data, npix );
-      *nullset = 0;
-      break;
-      
-    case dmDOUBLE:
-      *data = ( void *)calloc( npix, sizeof(double ));
-      dmGetArray_d( imgDesc, (double*) *data, npix );
-      *nullset = 0;
-      break;
-      
-    default:
-      return( dmUNKNOWNTYPE );
-    }
+  Image *img = (Image*)calloc( 1,sizeof(Image));
+  img->dt = dt;
+  img->data = data;
+  img->lAxes = lAxes;
+  img->mask = mask;
+  img->xdesc = xdesc;
+  img->ydesc = ydesc;
 
-  return(dt);
-
+  return(img);
 }
-
-
-
-
-/* Get the WCS descriptor */
-short  get_image_wcs( dmBlock *imgBlock, dmDescriptor **xAxis, 
-                      dmDescriptor **yAxis )
-{
-  
-
-  dmDescriptor *imgData;
-  long n_axis_groups;
-
-  imgData = dmImageGetDataDescriptor( imgBlock );
-  n_axis_groups = dmArrayGetNoAxisGroups( imgData );
-  
-
-  /* This is the usual trick ... can have 1 axis group w/ 
-     dimensionality 2 (eg a vector column) or can have
-     2 axis groups w/ dimensionaity 1 (eg 2 disjoint columns)*/
-  if ( n_axis_groups == 1 ) {
-    dmDescriptor *pos = dmArrayGetAxisGroup( imgData, 1 );
-    dmDescriptor *xcol;
-    long n_components;
-    
-    n_components = dmGetElementDim( pos );
-    if ( n_components != 2 ) {
-      err_msg("ERROR: could not find 2D image\n");
-      return(-1);
-    }
-    
-    xcol = dmGetCpt( pos, 1 );
-    
-    *xAxis = pos;
-    *yAxis = NULL;
-    
-  } else if ( n_axis_groups == 2 ) {
-    dmDescriptor *xcol;
-    dmDescriptor *ycol;
-  
-    xcol = dmArrayGetAxisGroup( imgData, 1 );
-    ycol = dmArrayGetAxisGroup( imgData, 2 );
-
-    *xAxis = xcol;
-    *yAxis = ycol;
-    
-  } else {
-    err_msg("Invalid number of axis groups\n");
-    *xAxis = NULL;
-    *yAxis = NULL;
-    return(-1);
-  }
-
-  return(0);
-
-}
-
-
-
-
-
-/* ----------------------------------------------------------- */
-
-/*
-   Okay, now we are down to the real reproject_image* code.
-
-*/
-
-
-
-
 
 
 /* Routine to convert coordinates */
@@ -468,6 +184,11 @@ int convert_coords( double *refpix,
   return(retval);
 }
                     
+
+/*
+   Okay, now we are down to the real reproject_image* code.
+
+*/
 
 
 /*
@@ -706,33 +427,10 @@ int resample_img(void)
   short verbose;
   int subpix;
   char lookup[DS_SZ_PATHNAME];
-
-
-
-
-  void *data;
-  long *lAxes;
-  regRegion *dss;
-  long null;
-  short has_null;
-  short *mask = NULL;
-
-  dmDataType dt;
-  dmBlock *inBlock;
-  dmDescriptor *xdesc, *ydesc;
-  dmDescriptor *xdesc_w, *ydesc_w;
-
-
-  
-  double *out_data;
   short do_norm;
   char which_norm[30];
   char csys[30];
-
   CoordType ctype = coordWORLD ;
-
-  WCS_Descriptors descs;
-
 
 
   /* Get the parameters */
@@ -776,6 +474,7 @@ int resample_img(void)
       err_msg("ERROR: Unknow coordinate type '%s'\n", csys );
     return(-1);
   }
+
   /* ----------------------------- */
 
 
@@ -785,44 +484,37 @@ int resample_img(void)
 
     // ------------------------
 
-  dmBlock *refBlock;
-  dmDescriptor *refxdesc, *refydesc;
-  dmDescriptor *refxdesc_w, *refydesc_w;
-  long *refAxes;
 
+
+
+  dmBlock *refBlock;
+  Image *refImage;
   if ( NULL == ( refBlock = dmImageOpen( reffile) ) ) {
       err_msg("ERROR: Cannot open image '%s'\n", reffile );
       return(-1);
   }
-
-  if ( dmUNKNOWNTYPE == ( dt = get_image_data( refBlock, &data,  &refAxes, 
-                                                 &dss, &null, &has_null ) ) ) {
-      err_msg("ERROR: Cannot get image data or unknown image data-type for "
-              "file '%s'\n", reffile);
-      return(-1);
+  
+  if ( NULL == ( refImage = load_image_file( refBlock ))) {
+      err_msg("ERROR: Cannot open image '%s'\n", reffile );
+      return(-1);      
   }
 
-  if ( 0 != get_image_wcs( refBlock, &refxdesc, &refydesc ) ) {
-      err_msg("ERROR: Cannot load WCS for file '%s'\n", reffile );
-      return(-1);
-  }
 
-  refxdesc_w = dmDescriptorGetCoord( refxdesc );
-  refydesc_w = dmDescriptorGetCoord( refydesc );
-  descs.ref.physical.xaxis = refxdesc;
-  descs.ref.physical.yaxis = refydesc;
-  descs.ref.world.xaxis = refxdesc_w;
-  descs.ref.world.yaxis = refydesc_w;
+  WCS_Descriptors descs;
+  descs.ref.physical.xaxis = refImage->xdesc;
+  descs.ref.physical.yaxis = refImage->ydesc;
+  descs.ref.world.xaxis = dmDescriptorGetCoord( refImage->xdesc );
+  descs.ref.world.yaxis = dmDescriptorGetCoord( refImage->ydesc );
 
-  free(data);  /* We don't need the data for the ref image, just the WCS */
+
 
   /* Alloc outptu data array */
-  out_data = ( double*)calloc( refAxes[1]*refAxes[0], sizeof(double));
+  double *out_data;
+  out_data = ( double*)calloc( refImage->lAxes[0]*refImage->lAxes[1], sizeof(double));
 
 
 
   /* Now let's start on the input stack */
-
   Stack inStack;
 
   inStack = stk_build( instack );
@@ -841,11 +533,9 @@ int resample_img(void)
   Header_Type **hdr;
   num_infiles = stk_count(inStack);
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
-  
-  
-  char *infile;                  /* individual image in stack */
-
   stk_rewind(inStack);
+    
+  char *infile;                  /* individual image in stack */
   while ( NULL != (infile = stk_read_next(inStack))) {
 
     if ( verbose > 1 ) {
@@ -854,42 +544,29 @@ int resample_img(void)
     
     
     /* Now load the image */
+    dmBlock *inBlock;
+    Image *inImage;
     if ( NULL == ( inBlock = dmImageOpen( infile) ) ) {
       err_msg("ERROR: Cannot open image '%s'\n", infile );
       return(-1);
     }
-    
-    if ( dmUNKNOWNTYPE == ( dt = get_image_data( inBlock, &data,  &lAxes, 
-                                                 &dss, &null, &has_null ) ) ) {
-      err_msg("ERROR: Cannot get image data or unknown image data-type for "
-              "file '%s'\n", infile);
-      return(-1);
-    }
-    
-    if ( 0 != get_image_wcs( inBlock, &xdesc, &ydesc ) ) {
-      err_msg("ERROR: Cannot load WCS for file '%s'\n", infile );
-      return(-1);
-    }
-    
-    if ( NULL == ( mask = get_image_mask( inBlock, data, dt, 
-                                          lAxes, dss, null, has_null, 
-                                          xdesc, ydesc ))){
-      /* ERROR ?*/
-    }
 
-    xdesc_w = dmDescriptorGetCoord( xdesc );
-    ydesc_w = dmDescriptorGetCoord( ydesc );
-
-    descs.image.physical.xaxis = xdesc;
-    descs.image.physical.yaxis = ydesc;
-    descs.image.world.xaxis = xdesc_w;
-    descs.image.world.yaxis = ydesc_w;
+    if ( NULL == ( inImage = load_image_file( inBlock ))) {
+      err_msg("ERROR: Cannot open image '%s'\n", infile );
+      return(-1);        
+    }
     
+    hdr[--num_infiles] = getHdr( inBlock, hdrDM_FILE );
+
+    descs.image.physical.xaxis = inImage->xdesc;
+    descs.image.physical.yaxis = inImage->ydesc;
+    descs.image.world.xaxis = dmDescriptorGetCoord( inImage->xdesc );
+    descs.image.world.yaxis = dmDescriptorGetCoord( inImage->ydesc );
     
 
     /* Some error checking on the WORLD coord calcs */
     if ( coordWORLD == ctype ) {
-      if ((NULL==xdesc_w)||(NULL==refxdesc_w)) {
+      if ((NULL==descs.image.world.xaxis)||(NULL==descs.ref.world.xaxis)) {
         err_msg("ERROR: There must be a WCS on both input "
                 "images if coord_sys=world\n");
         return(-1);
@@ -898,8 +575,8 @@ int resample_img(void)
         char rname[50];
         long npar;
         
-        dmCoordGetTransformType( xdesc_w, iname, &npar, 49);
-        dmCoordGetTransformType( refxdesc_w, rname, &npar, 49 ); 
+        dmCoordGetTransformType( descs.image.world.xaxis, iname, &npar, 49);
+        dmCoordGetTransformType( descs.ref.world.xaxis, rname, &npar, 49 ); 
 
         /* Not sure if this is really the check to be doing or
            if you should check some other names */
@@ -912,7 +589,6 @@ int resample_img(void)
       
     } /* end if coord */
 
-    hdr[--num_infiles] = getHdr( inBlock, hdrDM_FILE );
   
   
     VertexList refpixlist;   
@@ -926,8 +602,7 @@ int resample_img(void)
     double delta;
     
     delta = 1.0 / subpix;
-    
-    
+        
     /* Set up some data structures and alloc memory */
     refpixlist.vertex = ( Vertex*)calloc(4*subpix, sizeof(Vertex)); /*leak*/
     refpixlist.num_vertices = 4*subpix;
@@ -948,16 +623,16 @@ int resample_img(void)
     long min_ref_x,min_ref_y;
     long max_ref_x,max_ref_y;
     find_chip_corners( &min_ref_x, &min_ref_y, &max_ref_x, &max_ref_y, 
-                 refAxes[0], refAxes[1], lAxes[0], lAxes[1], &descs );
+                 refImage->lAxes[0], refImage->lAxes[1],
+                 inImage->lAxes[0], inImage->lAxes[1],
+                 &descs );
 
     /* Begin loop through data */
 
     long xx, yy;
-    long ii;
-
     for(yy=min_ref_y;yy<max_ref_y;yy++) {
       long ypix_off;
-      ypix_off = yy*refAxes[0];
+      ypix_off = yy*refImage->lAxes[0];
 
       if ( verbose > 2 ) {
         double perc = 100.0 * yy / max_ref_y;
@@ -984,8 +659,8 @@ int resample_img(void)
           nn = imgpix[1];
           
           /* get image value */
-          val = get_image_value( data, dt, mm, nn, lAxes, mask );
-          
+          val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
+
           if ( !ds_dNAN(val) )
             out_data[outpix] += val;
           outpix--;
@@ -1003,6 +678,7 @@ int resample_img(void)
         yy_min = refpixlist.vertex[0].y-0.5;
         xx_max = refpixlist.vertex[0].x+0.5;
         yy_max = refpixlist.vertex[0].y+0.5;
+        long ii;
         for (ii=4*subpix;--ii;) {
           xx_min = MIN( xx_min, (refpixlist.vertex[ii].x-0.5));
           yy_min = MIN( yy_min, (refpixlist.vertex[ii].y-0.5));
@@ -1034,7 +710,7 @@ int resample_img(void)
             area = get_contour_area( &clip_poly );
 
             /* get image value; weight output pixel by it */
-            val = get_image_value( data, dt, mm, nn, lAxes, mask );
+            val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
             
             if ( !ds_dNAN(val) )
               sum += ( val * area );
@@ -1060,9 +736,9 @@ int resample_img(void)
     if ( verbose > 2 )  printf("Processing %g%% complete        \n", 100.0 );
 
 
-    free(data);
-    free(lAxes);
-    if ( mask ) free(mask);
+    // TODO free(data);
+    // TODO free(lAxes);
+    // TODO if ( mask ) free(mask);
     dmImageClose( inBlock );
 
   }  /* end while infile loop over stack */
@@ -1085,7 +761,7 @@ int resample_img(void)
   dmBlock *outBlock = NULL;
   dmDescriptor *outDesc;
   
-  if ( NULL == ( outBlock = dmImageCreate( outfile, dmDOUBLE,refAxes,2 ))){
+  if ( NULL == ( outBlock = dmImageCreate( outfile, dmDOUBLE,refImage->lAxes,2 ))){
       err_msg("ERROR: Cannot create output image '%s'\n", outfile );
       return(-1);
   }
@@ -1093,7 +769,7 @@ int resample_img(void)
   putHdr( outBlock, hdrDM_FILE, outhdr, ALL_STS, "resample_image");
   put_param_hist_info( outBlock, "resample_image", NULL, 0 );
   dmBlockCopyWCS( refBlock, outBlock);
-  dmSetArray_d( outDesc, out_data, (refAxes[0]*refAxes[1]));
+  dmSetArray_d( outDesc, out_data, refImage->lAxes[0]*refImage->lAxes[1]);
   dmImageClose(outBlock );
   if ( outBlock != refBlock ) dmImageClose( refBlock );
 
