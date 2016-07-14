@@ -19,12 +19,12 @@
 /*                                                                          */
 
 
-#include "gpc.h"
+#include <repro_img.h>
 #include <stdlib.h>
 
 
-int poly_clip( gpc_polygon *pp, long qx, long qy,
-	       gpc_polygon *ret, short edge);
+int poly_clip( Polygon *pp, long qx, long qy,
+               Polygon *ret, short edge);
 
 
 #ifdef HAS_MAIN
@@ -32,18 +32,18 @@ int poly_clip( gpc_polygon *pp, long qx, long qy,
 int main() 
 {
 
-  gpc_polygon pp;
-  gpc_polygon tmp;
-  gpc_polygon ret;
-  gpc_vertex_list vv_list;
-  gpc_vertex *vv;
+  Polygon pp;
+  Polygon tmp;
+  Polygon ret;
+  VertexList vv_list;
+  Vertex *vv;
   int hole = 0;
 
   pp.num_contours = 1;
   pp.hole = &hole;
   pp.contour = &vv_list;
 
-  vv = (gpc_vertex*)calloc(4,sizeof(gpc_vertex));
+  vv = (Vertex*)calloc(4,sizeof(Vertex));
   vv_list.num_vertices = 4;
   vv_list.vertex = vv;
   
@@ -87,8 +87,8 @@ int main()
 
 */
 
-int poly_clip( gpc_polygon *pp, long qx, long qy,
-	       gpc_polygon *ret, short edge)
+int poly_clip( Polygon *pp, long qx, long qy,
+               Polygon *ret, short edge)
      
 {
   
@@ -126,49 +126,49 @@ int poly_clip( gpc_polygon *pp, long qx, long qy,
     */
     switch (edge) {
 
-    case 1: /* left */
+    case LEFT: /* left */
       if ( px_ii >= llx ) 
-	p1=1;
+        p1=1;
       else
-	p1=0;
+        p1=0;
       if ( px_jj >= llx )
-	p2=1;
+        p2=1;
       else
-	p2=0;
+        p2=0;
 
       break;
-    case 2:
+    case RIGHT:
       if ( px_ii <= urx ) 
-	p1=1;
+        p1=1;
       else
-	p1=0;
+        p1=0;
       if ( px_jj <= urx )
-	p2=1;
+        p2=1;
       else
-	p2=0;
+        p2=0;
       
 
       break;
-    case 3: /* bottom */
+    case BOTTOM: /* bottom */
       if ( py_ii >= lly ) 
-	p1=1;
+        p1=1;
       else
-	p1=0;
+        p1=0;
       if ( py_jj >= lly )
-	p2=1;
+        p2=1;
       else
-	p2=0;
+        p2=0;
 
       break;
-    case 4: /* top */
+    case TOP: /* top */
       if ( py_ii <= ury ) 
-	p1=1;
+        p1=1;
       else
-	p1=0;
+        p1=0;
       if ( py_jj <= ury )
-	p2=1;
+        p2=1;
       else
-	p2=0;
+        p2=0;
 
 
       break;
@@ -198,95 +198,95 @@ int poly_clip( gpc_polygon *pp, long qx, long qy,
 
       switch ( edge ) {
 
-      case 1: /* left */
-	
-	cx = llx;     cy = lly;
-	dx = llx;     dy = ury;
-	
-	dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
-	rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
-	ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
-	
-	if ( 0 == dom ) continue;
-	rr /= dom;
-	ss /= dom;
-	
-	ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax); /* better be llx! */
-	ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay);
-	(*nout)++;
-	if (0==p1) {
-	  ret->contour[0].vertex[(*nout)].x = px_jj;
-	  ret->contour[0].vertex[(*nout)].y = py_jj;
-	  (*nout)++;
-	}
-	continue; /* next ii */
+      case LEFT: /* left */
+        
+        cx = llx;     cy = lly;
+        dx = llx;     dy = ury;
+        
+        dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
+        rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
+        ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
+        
+        if ( 0 == dom ) continue;
+        rr /= dom;
+        ss /= dom;
+        
+        ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax); /* better be llx! */
+        ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay);
+        (*nout)++;
+        if (0==p1) {
+          ret->contour[0].vertex[(*nout)].x = px_jj;
+          ret->contour[0].vertex[(*nout)].y = py_jj;
+          (*nout)++;
+        }
+        continue; /* next ii */
 
       
-      case 2: /* right */
-	cx = urx;     cy = lly;
-	dx = urx;     dy = ury;
-	
-	dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
-	rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
-	ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
-	
-	if ( 0 == dom ) continue;
-	rr /= dom;
-	ss /= dom;
-	
-	ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax); /* better be urx! */
-	ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay);
-	(*nout)++;
-	if (0==p1) {
-	  ret->contour[0].vertex[(*nout)].x = px_jj;
-	  ret->contour[0].vertex[(*nout)].y = py_jj;
-	  (*nout)++;
-	}
-	continue; /* next ii */
-	
-      case 3: /* bottom */
-	cx = llx;     cy = lly;
-	dx = urx;     dy = lly;
-	
-	dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
-	rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
-	ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
-	
-	if ( 0 == dom ) continue;
-	rr /= dom;
-	ss /= dom;
-	
-	ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax);
-	ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay); /* better be lly */
-	(*nout)++;
-	if (0==p1) {
-	  ret->contour[0].vertex[(*nout)].x = px_jj;
-	  ret->contour[0].vertex[(*nout)].y = py_jj;
-	  (*nout)++;
-	}
-	continue; /* next ii */
+      case RIGHT: /* right */
+        cx = urx;     cy = lly;
+        dx = urx;     dy = ury;
+        
+        dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
+        rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
+        ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
+        
+        if ( 0 == dom ) continue;
+        rr /= dom;
+        ss /= dom;
+        
+        ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax); /* better be urx! */
+        ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay);
+        (*nout)++;
+        if (0==p1) {
+          ret->contour[0].vertex[(*nout)].x = px_jj;
+          ret->contour[0].vertex[(*nout)].y = py_jj;
+          (*nout)++;
+        }
+        continue; /* next ii */
+        
+      case BOTTOM: /* bottom */
+        cx = llx;     cy = lly;
+        dx = urx;     dy = lly;
+        
+        dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
+        rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
+        ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
+        
+        if ( 0 == dom ) continue;
+        rr /= dom;
+        ss /= dom;
+        
+        ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax);
+        ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay); /* better be lly */
+        (*nout)++;
+        if (0==p1) {
+          ret->contour[0].vertex[(*nout)].x = px_jj;
+          ret->contour[0].vertex[(*nout)].y = py_jj;
+          (*nout)++;
+        }
+        continue; /* next ii */
 
-      case 4: /* top */
-	cx = llx;     cy = ury;
-	dx = urx;     dy = ury;
-	
-	dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
-	rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
-	ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
-	
-	if ( 0 == dom ) continue;
-	rr /= dom;
-	ss /= dom;
-	
-	ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax);
-	ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay); /* bette be ury */
-	(*nout)++;
-	if (0==p1) {
-	  ret->contour[0].vertex[(*nout)].x = px_jj;
-	  ret->contour[0].vertex[(*nout)].y = py_jj;
-	  (*nout)++;
-	}
-	continue; /* next ii */
+      case TOP: /* top */
+        cx = llx;     cy = ury;
+        dx = urx;     dy = ury;
+        
+        dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
+        rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
+        ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
+        
+        if ( 0 == dom ) continue;
+        rr /= dom;
+        ss /= dom;
+        
+        ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax);
+        ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay); /* bette be ury */
+        (*nout)++;
+        if (0==p1) {
+          ret->contour[0].vertex[(*nout)].x = px_jj;
+          ret->contour[0].vertex[(*nout)].y = py_jj;
+          (*nout)++;
+        }
+        continue; /* next ii */
       } /* end switch */
 
     } else if ( (0==p1) && (0==p2) ) {/* neither point inside */

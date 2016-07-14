@@ -21,32 +21,27 @@
  
 /* H*****************************************************************
  *
- * FILE NAME: t_repro_img.c
+ * FILE NAME: t_resample_img.c
  *
  * DEVELOPMENT: tools
  *
  * DESCRIPTION:
  *
- * IRAF wrapper for repro_img tool
+ * IRAF wrapper for resample_img tool
  *  
  *
  *
 H***************************************************************** */
 
 #include "dslib.h"
-extern int repro_img(void);
-
+#include "repro_img.h"
 
 int main(int argc, char** argv)
 {
     int fail_status = 0; 
 
 
-#ifdef _RI_GRID_
-    dsErrInitLib(dsPTGRPERR, "reproject_image_grid");
-#else
-    dsErrInitLib(dsPTGRPERR, "reproject_image");
-#endif
+    dsErrInitLib(dsPTGRPERR, "resample_image");
 
     /* INIT THE IRAF ENVIRONMENT */
     /* IRAFHOST_INIT;		*/
@@ -61,7 +56,7 @@ int main(int argc, char** argv)
     else
     {    
        /* EXECUTE OUR PROGRAM */ 
-       fail_status = repro_img();
+       fail_status = resample_img();
     
        /* CLOSE PARAMETER FILE AND RETURN TO THE OS */
        clclose();

@@ -27,7 +27,8 @@
 #include <limits.h>
 #include <cxcregion.h>
 
-#include "gpc.h"
+
+#include "repro_img.h"
 
 /* 
    These typedef's define a) an enumerated type to be used to know which trans
@@ -44,7 +45,6 @@ typedef struct {
  WCS image;
  } WCS_Descriptors;
 
-typedef enum { LEFT=1, RIGHT=2, BOTTOM=3, TOP=4 } EdgeType;
 
 /*
   All these get_ routines are pilfered from other (too be released) DM tools 
@@ -56,12 +56,12 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
                        long xlen, long ylen,
                        long ilen, long jlen,
                        WCS_Descriptors *desc );
-double get_contour_area( gpc_polygon *clip_poly );
+double get_contour_area( Polygon *clip_poly );
 
 int fill_polygon( long subpix,
                   double delta,
                   long xx, long yy,
-                  gpc_vertex_list *refpixlist,
+                  VertexList *refpixlist,
                   WCS_Descriptors *descs,
                   CoordType ctype);
 
@@ -411,8 +411,8 @@ short  get_image_wcs( dmBlock *imgBlock, dmDescriptor **xAxis,
 
 
 
-extern int poly_clip( gpc_polygon *pp, long qx, long qy,
-               gpc_polygon *ret, short edge);
+extern int poly_clip( Polygon *pp, long qx, long qy,
+               Polygon *ret, short edge);
 
 
 
@@ -491,7 +491,7 @@ int convert_coords( double *refpix,
 int fill_polygon( long subpix,
                   double delta,
                   long xx, long yy,
-                  gpc_vertex_list *refpixlist,
+                  VertexList *refpixlist,
                   WCS_Descriptors *descs,
                   CoordType ctype)
 {
@@ -576,13 +576,12 @@ int fill_polygon( long subpix,
 
 */
 
-double get_contour_area( gpc_polygon *clip_poly )
+double get_contour_area( Polygon *clip_poly )
 {
   double area;
-  long kk;
+  long kk=0;
 
   area = 0;
-  for (kk=0;kk<clip_poly->num_contours;kk++) {
     double larea = 0;
     long zz;
     
@@ -600,12 +599,7 @@ double get_contour_area( gpc_polygon *clip_poly )
     
     larea /= 2.0;
     
-    if ( clip_poly->hole[kk] == 0 )
       area += fabs(larea);
-    else {
-      area -= fabs(larea);
-    }
-  }
 
   return(area);
 }
@@ -709,9 +703,9 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
 
 /* Now onto the main routine */
 
-int repro_img(void);
+int resample_img(void);
 
-int repro_img(void)
+int resample_img(void)
 {
 
   char instack[DS_SZ_PATHNAME];  /* Input stack of images */
@@ -929,49 +923,30 @@ int repro_img(void)
 
     hdr[--num_infiles] = getHdr( inBlock, hdrDM_FILE );
   
-    
+  
+    VertexList refpixlist;   
+    VertexList clip_list;
+    VertexList tmp_clip_list;
 
-    /* These gpc_* data structures are defined in gpc.h*/
-    /* 
-         They are a left over from the original prototype
-         that used a general polygon clip algorithm but
-         now we use a more specialized rectangle-clip-polygon
-         algorithm.  However, they are somewhat convienient so
-         we kept them as is.
-    */
-
-    gpc_vertex_list refpixlist;   
-    gpc_vertex_list clip_list;
-    gpc_vertex_list tmp_clip_list;
-
-    gpc_polygon ref_poly;
-    gpc_polygon clip_poly;
-    gpc_polygon tmp_clip_poly;
+    Polygon ref_poly;
+    Polygon clip_poly;
+    Polygon tmp_clip_poly;
 
     double delta;
-    int hole = 0;
     
     delta = 1.0 / subpix;
     
     
     /* Set up some data structures and alloc memory */
-    refpixlist.vertex = ( gpc_vertex*)calloc(4*subpix, sizeof(gpc_vertex)); /*leak*/
+    refpixlist.vertex = ( Vertex*)calloc(4*subpix, sizeof(Vertex)); /*leak*/
     refpixlist.num_vertices = 4*subpix;
     
     ref_poly.contour = &refpixlist;
     clip_poly.contour = &clip_list;
     tmp_clip_poly.contour = &tmp_clip_list;
 
-    clip_list.vertex = (gpc_vertex*)calloc(4*subpix*4,sizeof(gpc_vertex));
-    tmp_clip_list.vertex = (gpc_vertex*)calloc(4*subpix*4,sizeof(gpc_vertex));
-
-    ref_poly.hole = &hole;
-    clip_poly.hole = &hole;
-    tmp_clip_poly.hole = &hole;
-    ref_poly.num_contours = 1;    
-    clip_poly.num_contours = 1;
-    tmp_clip_poly.num_contours = 1;
-
+    clip_list.vertex = (Vertex*)calloc(4*subpix*4,sizeof(Vertex));
+    tmp_clip_list.vertex = (Vertex*)calloc(4*subpix*4,sizeof(Vertex));
 
     
     /* Okay, we'll look to the input image and map the corners
