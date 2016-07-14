@@ -765,11 +765,15 @@ int resample_img(void)
           } /* end for xx (x-axis in ref image ) */
         } /* end for yy (y-axis in ref image) */
 
+        if (0 == buffer_len) continue;
+
         long bb;
         for (bb=1;bb<buffer_len;bb++) {
             area_buff[bb] += area_buff[bb-1];
         }
-        //printf("buffer_len=%ld max area_buff[-1]=%g\n", buffer_len, area_buff[buffer_len-1]);
+        for (bb=0;bb<buffer_len;bb++) {
+            area_buff[bb] /= area_buff[buffer_len-1];
+        }
 
         long vv;
         for (vv=0;vv<val;vv++) {
@@ -780,6 +784,7 @@ int resample_img(void)
                     break;
                 }
             }
+
             long outpix;
             outpix = xx_buffer[bb] + (yy_buffer[bb])*refImage->lAxes[0];
             out_data[outpix] += 1;
