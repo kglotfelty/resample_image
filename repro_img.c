@@ -40,9 +40,11 @@ typedef enum { coordLOGICAL, coordPHYSICAL, coordWORLD } CoordType;
 typedef struct { dmDescriptor *xaxis; dmDescriptor *yaxis; } Axes;
 typedef struct { Axes physical; Axes world; } WCS;
 typedef struct {
- WCS ref; WCS image; short swap_phys; short swap_wrld;
+ WCS ref; 
+ WCS image;
  } WCS_Descriptors;
 
+typedef enum { LEFT=1, RIGHT=2, BOTTOM=3, TOP=4 } EdgeType;
 
 /*
   All these get_ routines are pilfered from other (too be released) DM tools 
@@ -54,15 +56,17 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
                        long xlen, long ylen,
                        long ilen, long jlen,
                        WCS_Descriptors *desc );
-double convert_hms_dms( char *radec, double factor );
-double convert_pixsize( char *psize );
 double get_contour_area( gpc_polygon *clip_poly );
+
 int fill_polygon( long subpix,
                   double delta,
                   long xx, long yy,
                   gpc_vertex_list *refpixlist,
                   WCS_Descriptors *descs,
                   CoordType ctype);
+
+
+// # ----------------------
                   
 int convert_coords( double *refpix,
                     WCS_Descriptors *descs,
@@ -607,109 +611,6 @@ double get_contour_area( gpc_polygon *clip_poly )
 }
 
 
-/*
-  Convert arcmin/sec to degress based on the pixel size.
-*/
-
-double convert_pixsize( char *psize )
-{
-
-  char *ptr;
-  char *ptr2;
-  double retval;
-
-  ptr = psize + strlen(psize);
-
-  retval = strtod( psize, &ptr2 );
-  if (( ptr2!=NULL) && ( strlen(ptr2)>0)) {
-    if (ptr2==(ptr-1)) {
-      if (*ptr2 == '"' )
-        retval /= 3600.0;
-      else if ( *ptr2 == '\'' )
-        retval /= 60.0;
-      else
-        ds_MAKE_DNAN(retval);
-    } else {
-      ds_MAKE_DNAN(retval);
-    }
-  }
-
-  return(retval);
-}
-
-/*
-  Convert a string in HMS or DMS format to degrees. (adapted from dmcoords)
-*/
-double convert_hms_dms( char *radec, double factor )
-{
-  double retval;
-  char *ptr;
-
-  retval = strtod( radec, &ptr );
-  if (( ptr != NULL )&&( strlen(ptr)>0)) {
-
-    int hh, mm;
-    float sec;
-    char *ptr2;
-
-    hh = strtol( radec, &ptr, 10 );
-
-    if (( ptr == NULL ) || ( *ptr != ':' ) ) {
-      ds_MAKE_DNAN( retval);
-      return(retval);
-    }
-    ptr2 = ptr+1;
-    mm = strtol( ptr2, &ptr, 10 );
-    if (( ptr == NULL ) || ( *ptr != ':' ) ) {
-      ds_MAKE_DNAN( retval);
-      return(retval);
-    }
-    ptr2 = ptr+1;
-    sec = strtod( ptr2, &ptr );
-    if (( ptr != NULL ) && (strlen(ptr) > 0 )) {
-      ds_MAKE_DNAN( retval);
-      return(retval);
-    }
-    
-    if ( ( sec < 0 ) || ( sec >= 60 ) ) {
-      ds_MAKE_DNAN( retval);
-      return(retval);
-    }
-    if ( ( mm < 0 ) || ( mm >= 60 ) ) {
-      ds_MAKE_DNAN( retval);
-      return(retval);
-    }
-
-    if ( factor == 1 ) {
-      if ( (hh < -90) || ( hh > 90 ) ) {
-        ds_MAKE_DNAN( retval);
-        return(retval);
-      }
-    } else {
-      if ( (hh < 0) || ( hh > 24)) {
-        ds_MAKE_DNAN( retval);
-        return(retval);
-        
-      }
-      
-    }
-    
-    /*retval = (((hh * 60.0 + mm) * 60.0) + sec ) / 3600.0;*/
-
-
-    int sgn = ( hh < 0 ) ? -1 : 1; /* get sign of hour*/
-
-    hh *= sgn;  /* make positive */
-    
-    retval = (hh + (mm/60.0) + ( sec/3600.0)) * sgn;
-    
-    retval *= factor;
-    
-  }
-
-  return(retval);
-}
-
 
 
 /*
@@ -753,7 +654,8 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
        Ranges get clipped at the end so extra padding doesn't
        hurt
     */    
-    vals_x[0] = -2; vals_y[0] = -2;
+    vals_x[0] = -2; 
+    vals_y[0] = -2;
     vals_x[1] = ilen+2;
     vals_y[1] = jlen+2;
     
@@ -813,13 +715,15 @@ int repro_img(void)
 {
 
   char instack[DS_SZ_PATHNAME];  /* Input stack of images */
-  char *infile;                  /* individual image in stack */
   char reffile[DS_SZ_PATHNAME];  /* match file */
   char outfile[DS_SZ_PATHNAME];  /* output file */
   short clobber;
   short verbose;
+  int subpix;
+  char lookup[DS_SZ_PATHNAME];
 
-  Stack inStack;
+
+
 
   void *data;
   long *lAxes;
@@ -833,122 +737,32 @@ int repro_img(void)
   dmDescriptor *xdesc, *ydesc;
   dmDescriptor *xdesc_w, *ydesc_w;
 
-  dmBlock *refBlock;
-  dmDescriptor *refxdesc, *refydesc;
-  dmDescriptor *refxdesc_w, *refydesc_w;
-  long *refAxes;
-  
-  dmBlock *outBlock = NULL;
-  dmDescriptor *outDesc;
 
-  long xx, yy;
-  long ii;
-
-  int subpix;
-  double delta;
-
-  /* These gpc_* data structures are defined in gpc.h*/
-  /* 
-     They are a left over from the original prototype
-     that used a general polygon clip algorithm but
-     now we use a more specialized rectangle-clip-polygon
-     algorithm.  However, they are somewhat convienient so
-     we kept them as is.
-  */
-
-  gpc_vertex_list imgpixlist;
-  gpc_vertex_list refpixlist;   
-
-  gpc_vertex_list clip_list;
-  gpc_vertex_list tmp_clip_list;
-
-  gpc_polygon img_poly;
-  gpc_polygon ref_poly;
-
-  gpc_polygon clip_poly;
-  gpc_polygon tmp_clip_poly;
-
-
-  int hole = 0;
-
-  
-  long xx_min, xx_max, yy_min, yy_max;
   
   double *out_data;
-  long outpix;
   short do_norm;
   char which_norm[30];
   char csys[30];
 
   CoordType ctype = coordWORLD ;
 
-  short using_refimg=1;
-
-  double crval[2];
-  double crpix[2];
-  double cdelt[2];  
-  long   naxes[2];
-
-
-  /* This .c file is used to compile two different tools:
-     reproject_image and reproject_image_grid.
-
-     The later will have -D_RI_GRID on the compile line to compile the 
-     minimally different code between the two (all to
-     do with the user interface
-  */
-  
-  char   wrld_vals[2][100];
-  char   psize[50];
-  
-  long num_infiles;
-  Header_Type **hdr;
-  Header_Type *outhdr;
-  char lookup[DS_SZ_PATHNAME];
-
   WCS_Descriptors descs;
+
 
 
   /* Get the parameters */
   clgetstr( "infile", instack, DS_SZ_FNAME );
   clgetstr( "matchfile", reffile, DS_SZ_FNAME );
   clgetstr( "outfile", outfile, DS_SZ_FNAME );
-
-
-  if ( ( strlen( reffile) == 0 ) ||
-       ( ds_strcmp_cis(reffile, "none" ) == 0 ) ) {
-
-    err_msg("ERROR: Must supply a valid match file\n");
-    return(-1);
-  } else {
-    using_refimg = 1;
-  }
-
-
   subpix = clgeti("resolution");
-
   clgetstr("method", which_norm, 29);
-  if ( strcmp( which_norm, "sum" ) == 0 ) 
-    do_norm=0;
-  else
-    do_norm=1;
   clgetstr("coord_sys", csys, 29);
-  switch ( csys[0] ) {
-  case 'l': ctype = coordLOGICAL; break;
-  case 'p': ctype = coordPHYSICAL; break;
-  case 'w': ctype = coordWORLD; break;
-  default:
-    err_msg("ERROR: Unknow coordinate type '%s'\n", csys );
-    return(-1);
-  }
-
   clgetstr( "lookupTab", lookup, DS_SZ_FNAME);
   clobber = clgetb( "clobber" );
   verbose = clgeti( "verbose" );
   
-
   if ( verbose ) {  
-    printf("reproject_image - parameters\n");
+    printf("resample_image - parameters\n");
     printf("%15s = %-s\n", "infile", instack );
     printf("%15s = %-s\n", "matchfile", reffile );
     printf("%15s = %-s\n", "outfile", outfile );
@@ -960,93 +774,71 @@ int repro_img(void)
     printf("%15s = %d\n", "verbose", verbose );
   }
 
+  if ( ( strlen( reffile) == 0 ) ||
+       ( ds_strcmp_cis(reffile, "none" ) == 0 ) ) {
 
+    err_msg("ERROR: Must supply a valid match file\n");
+    return(-1);
+   }
 
+  do_norm =  ( strcmp( which_norm, "sum" ) == 0 ) ? 0 : 1;
 
+  switch ( csys[0] ) {
+    case 'l': ctype = coordLOGICAL; break;
+    case 'p': ctype = coordPHYSICAL; break;
+    case 'w': ctype = coordWORLD; break;
+    default:
+      err_msg("ERROR: Unknow coordinate type '%s'\n", csys );
+    return(-1);
+  }
+  /* ----------------------------- */
 
 
   if ( ds_clobber( outfile, clobber, NULL ) != 0 ) {
     return(-1);
   }
 
+    // ------------------------
 
-  if (  0 == using_refimg ) {
+  dmBlock *refBlock;
+  dmDescriptor *refxdesc, *refydesc;
+  dmDescriptor *refxdesc_w, *refydesc_w;
+  long *refAxes;
 
-    char *skyname = "SKY";
-    char *xynames[2] = { "X", "Y" };
-    char *wrldname = "EQPOS";
-    char *radecnames[2] = { "RA", "DEC"};
-
-    refAxes = (long*)calloc(2,sizeof(long));
-    refAxes[0] = naxes[0];
-    refAxes[1] = naxes[1];
-    if ( NULL == ( outBlock = dmImageCreate( outfile, dmDOUBLE,refAxes,2 ))){
-      err_msg("ERROR: Cannot create output image '%s'\n", outfile );
-      return(-1);
-    }
-    
-    cdelt[1] = convert_pixsize( psize );
-    if ( ds_dNAN( (cdelt[1])) ) {
-      err_msg("ERROR: Cannot convert pixelsize='%s'\n", psize );
-      return(-2);
-    }
-    cdelt[0] = -cdelt[1]; /* East is to the left */
-    
-    
-    crval[0] = convert_hms_dms( wrld_vals[0], 15.0 );
-    if ( ds_dNAN( (crval[0]))) {
-      err_msg("ERROR: cannot convert xcenter value='%s'\n", wrld_vals[0]);
-      return(-2);
-    }
-    
-    crval[1] = convert_hms_dms( wrld_vals[1], 1.0 );
-    if ( ds_dNAN( (crval[1]))) {
-      err_msg("ERROR: cannot convert xcenter value='%s'\n", wrld_vals[1]);
-      return(-2);
-    }
-    
-   
-    refBlock = outBlock;
-    outDesc = dmImageGetDataDescriptor( outBlock );
-    
-    refxdesc = dmArrayCreateAxisGroup( outDesc, skyname, dmDOUBLE,
-                                       "pixel", xynames, 2 );
-    refydesc = NULL;
-    /* do not use lowercase 'tan' ... bad results */
-    refxdesc_w = dmCoordCreate_d( refxdesc, wrldname, "degree",
-                                  radecnames, 2, "TAN",
-                                  crpix, crval, cdelt, NULL);
-    refydesc_w = NULL;
-    
-  } else {
-    /* do ref image first */
-    if ( NULL == ( refBlock = dmImageOpen( reffile) ) ) {
+  if ( NULL == ( refBlock = dmImageOpen( reffile) ) ) {
       err_msg("ERROR: Cannot open image '%s'\n", reffile );
       return(-1);
-    }
-    
-    if ( dmUNKNOWNTYPE == ( dt = get_image_data( refBlock, &data,  &refAxes, 
+  }
+
+  if ( dmUNKNOWNTYPE == ( dt = get_image_data( refBlock, &data,  &refAxes, 
                                                  &dss, &null, &has_null ) ) ) {
       err_msg("ERROR: Cannot get image data or unknown image data-type for "
               "file '%s'\n", reffile);
       return(-1);
-    }
-    
-    if ( 0 != get_image_wcs( refBlock, &refxdesc, &refydesc ) ) {
+  }
+
+  if ( 0 != get_image_wcs( refBlock, &refxdesc, &refydesc ) ) {
       err_msg("ERROR: Cannot load WCS for file '%s'\n", reffile );
       return(-1);
-    }
-    
-    refxdesc_w = dmDescriptorGetCoord( refxdesc );
-    refydesc_w = dmDescriptorGetCoord( refydesc );
+  }
 
-    free(data);
+  refxdesc_w = dmDescriptorGetCoord( refxdesc );
+  refydesc_w = dmDescriptorGetCoord( refydesc );
+  descs.ref.physical.xaxis = refxdesc;
+  descs.ref.physical.yaxis = refydesc;
+  descs.ref.world.xaxis = refxdesc_w;
+  descs.ref.world.yaxis = refydesc_w;
 
+  free(data);  /* We don't need the data for the ref image, just the WCS */
 
-  } /* end else has refimg */
+  /* Alloc outptu data array */
+  out_data = ( double*)calloc( refAxes[1]*refAxes[0], sizeof(double));
+
 
 
   /* Now let's start on the input stack */
+
+  Stack inStack;
 
   inStack = stk_build( instack );
   if ( ( NULL == inStack ) ||
@@ -1057,21 +849,19 @@ int repro_img(void)
   }
 
 
+
+  /* Okay, start to process the data */
+    
+  long num_infiles;
+  Header_Type **hdr;
   num_infiles = stk_count(inStack);
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
   
-  /* Okay, start to process the data */
-
-  out_data = ( double*)calloc( refAxes[1]*refAxes[0], sizeof(double));
   
+  char *infile;                  /* individual image in stack */
 
   stk_rewind(inStack);
   while ( NULL != (infile = stk_read_next(inStack))) {
-
-    long min_ref_x,min_ref_y;
-    long max_ref_x,max_ref_y;
-
-    outpix = refAxes[1]*refAxes[0];
 
     if ( verbose > 1 ) {
       printf("\nProcessing input file '%s'\n", infile );
@@ -1104,47 +894,13 @@ int repro_img(void)
 
     xdesc_w = dmDescriptorGetCoord( xdesc );
     ydesc_w = dmDescriptorGetCoord( ydesc );
+
+    descs.image.physical.xaxis = xdesc;
+    descs.image.physical.yaxis = ydesc;
+    descs.image.world.xaxis = xdesc_w;
+    descs.image.world.yaxis = ydesc_w;
     
     
-
-    /* 
-       We want the output image to have a physical coordinate system
-       that is _consistent_ with the 1st input file.  They will not be identical.
-       Typically the physical pixel is defined at the bottom left corner.
-       This maps the center of the field/tan-point/etc. to physical and uses
-       that as the transform values.
-    */
-    if (( 0 == using_refimg) && ( 1 == stk_current( inStack )) ) {
-      double ppix[2];
-      double pval[2];
-      double pdlt[2];
-      short dim = ( ydesc ? 1 : 2 );
-      double phyinp[2];
-      
-      
-      dmCoordGetTransform_d( xdesc, ppix, pval, pdlt, dim );
-      if ( ydesc )
-        dmCoordGetTransform_d( ydesc, ppix+1, pval+1, pdlt+1, dim );
-
-      cdelt[0] /= pdlt[0]; /* New cdelt values */
-      cdelt[1] /= pdlt[1];
-      
-      /* Okay, we map the crval to the physical pixel in the input image */
-      dmCoordInvert_d( xdesc_w, crval, phyinp); 
-      if ( ydesc )
-        dmCoordInvert_d( ydesc_w, crval+1, phyinp+1); 
-
-
-      ppix[0] = crpix[0];
-      ppix[1] = crpix[1];
-      
-      dmCoordSetTransform_d( refxdesc, ppix, phyinp, pdlt, 2 );
-      dmCoordSetTransform_d( refxdesc_w, phyinp, crval, cdelt,2 );
-      
-    }
-
-    descs.swap_phys = 0;
-    descs.swap_wrld = 0;
 
     /* Some error checking on the WORLD coord calcs */
     if ( coordWORLD == ctype ) {
@@ -1166,21 +922,7 @@ int repro_img(void)
           err_msg("WARNING: The WCS on the image images should be the same "
                   "type when using coord_sys=wcs (ie TAN-P)");
         }
-
-        dmGetCptName( xdesc_w, 1, iname, 49 );
-        dmGetCptName( refxdesc_w, 1, rname, 49 );
-        
-        if ( 0 != ds_strcmp_cis( iname, rname ) ) 
-          descs.swap_wrld = 1;
-
-        dmGetCptName( xdesc, 1, iname, 49 );
-        dmGetCptName( refxdesc, 1, rname, 49 );
-        
-        if ( 0 != ds_strcmp_cis( iname, rname ) ) 
-          descs.swap_phys = 1;
-
-
-        
+                
       } /* end else coords */
       
     } /* end if coord */
@@ -1188,6 +930,26 @@ int repro_img(void)
     hdr[--num_infiles] = getHdr( inBlock, hdrDM_FILE );
   
     
+
+    /* These gpc_* data structures are defined in gpc.h*/
+    /* 
+         They are a left over from the original prototype
+         that used a general polygon clip algorithm but
+         now we use a more specialized rectangle-clip-polygon
+         algorithm.  However, they are somewhat convienient so
+         we kept them as is.
+    */
+
+    gpc_vertex_list refpixlist;   
+    gpc_vertex_list clip_list;
+    gpc_vertex_list tmp_clip_list;
+
+    gpc_polygon ref_poly;
+    gpc_polygon clip_poly;
+    gpc_polygon tmp_clip_poly;
+
+    double delta;
+    int hole = 0;
     
     delta = 1.0 / subpix;
     
@@ -1196,51 +958,31 @@ int repro_img(void)
     refpixlist.vertex = ( gpc_vertex*)calloc(4*subpix, sizeof(gpc_vertex)); /*leak*/
     refpixlist.num_vertices = 4*subpix;
     
-    imgpixlist.vertex = ( gpc_vertex*)calloc(4,sizeof(gpc_vertex)); /* leak*/
-    imgpixlist.num_vertices = 4;
-    
-    img_poly.contour = &imgpixlist;
-    img_poly.hole = &hole;
-    img_poly.num_contours = 1;
-    
     ref_poly.contour = &refpixlist;
-    ref_poly.hole = &hole;
-    ref_poly.num_contours = 1;
-    
     clip_poly.contour = &clip_list;
-    clip_poly.hole = &hole;
-    clip_poly.num_contours = 1;
-
     tmp_clip_poly.contour = &tmp_clip_list;
-    tmp_clip_poly.hole = &hole;
-    tmp_clip_poly.num_contours = 1;
 
     clip_list.vertex = (gpc_vertex*)calloc(4*subpix*4,sizeof(gpc_vertex));
     tmp_clip_list.vertex = (gpc_vertex*)calloc(4*subpix*4,sizeof(gpc_vertex));
 
-    /*
-      Put all this stuff into a struct to make it faster to pass around 
-    */
-    descs.ref.physical.xaxis = refxdesc;
-    descs.ref.physical.yaxis = refydesc;
-    descs.ref.world.xaxis = refxdesc_w;
-    descs.ref.world.yaxis = refydesc_w;
-    descs.image.physical.xaxis = xdesc;
-    descs.image.physical.yaxis = ydesc;
-    descs.image.world.xaxis = xdesc_w;
-    descs.image.world.yaxis = ydesc_w;
+    ref_poly.hole = &hole;
+    clip_poly.hole = &hole;
+    tmp_clip_poly.hole = &hole;
+    ref_poly.num_contours = 1;    
+    clip_poly.num_contours = 1;
+    tmp_clip_poly.num_contours = 1;
+
+
     
     /* Okay, we'll look to the input image and map the corners
        to the image in the output.  This way we only have to process those
        pixels in the output which could conver the input.  Should
        save time especially when input image is small piece of the
        output image ... eg mosaics */
-    if ( 0 != find_chip_corners( &min_ref_x, &min_ref_y, 
-                                 &max_ref_x, &max_ref_y, 
-                                 refAxes[0], refAxes[1],
-                                 lAxes[0], lAxes[1],
-                                 &descs )) {
-
+    long min_ref_x,min_ref_y;
+    long max_ref_x,max_ref_y;
+    if ( 0 != find_chip_corners( &min_ref_x, &min_ref_y, &max_ref_x, &max_ref_y, 
+                                 refAxes[0], refAxes[1], lAxes[0], lAxes[1], &descs )) {
       min_ref_x = 0;
       min_ref_y = 0;
       max_ref_x = refAxes[0];
@@ -1249,9 +991,12 @@ int repro_img(void)
     }
 
     /* Begin loop through data */
-    outpix--; /* output pixel counter */
+
+    long xx, yy;
+    long ii;
+
     for(yy=min_ref_y;yy<max_ref_y;yy++) {
-      double ypix_off;
+      long ypix_off;
       ypix_off = yy*refAxes[0];
 
       if ( verbose > 2 ) {
@@ -1260,17 +1005,15 @@ int repro_img(void)
       }
 
       for (xx=min_ref_x;xx<max_ref_x;xx++ ) {
-        double val;
-        double refpix[2];
-        double imgpix[2];
-        
-        long mm,nn;
-        double weight;  
-        double sum;
-
+        long outpix;
         outpix = ypix_off + xx;
         
-        if ( subpix == 0 ) {
+        if ( subpix == 0 ) {  // TODO DELETE THIS, REMOVE FROM .t FILE
+          double val;
+          double refpix[2];
+          double imgpix[2];        
+          long mm,nn;
+
           refpix[0] = xx+1;
           refpix[1] = yy+1;
           convert_coords( refpix, &descs, imgpix,ctype);
@@ -1289,8 +1032,10 @@ int repro_img(void)
           continue;
         }
 
+
       
         /* This creates a polygon around output pixel xx,yy */
+        long xx_min, xx_max, yy_min, yy_max;
         fill_polygon( subpix, delta, xx, yy,&refpixlist, &descs, ctype );
         
         /* find the min and max pixels that need to intersect polygon with */
@@ -1304,31 +1049,26 @@ int repro_img(void)
           xx_max = MAX( xx_max, (refpixlist.vertex[ii].x+0.5));
           yy_max = MAX( yy_max, (refpixlist.vertex[ii].y+0.5));
         }
+
         
-        
+        long mm,nn;
+        double weight;  
+        double sum;
         weight  = 0;
         sum = 0;
         /* for each pixel that could intersect poly check it and get area */
         for (nn=yy_min;nn<=yy_max;nn++) {
+
           for (mm=xx_min;mm<=xx_max;mm++ ) {
                     
             double area;
-            /* imgpixlist is data under img_poly */
-            imgpixlist.vertex[0].x=mm-0.5;
-            imgpixlist.vertex[1].x=mm-0.5;
-            imgpixlist.vertex[2].x=mm+0.5;
-            imgpixlist.vertex[3].x=mm+0.5;
-            imgpixlist.vertex[0].y=nn-0.5;
-            imgpixlist.vertex[1].y=nn+0.5;
-            imgpixlist.vertex[2].y=nn+0.5;
-            imgpixlist.vertex[3].y=nn-0.5;
-
+            double val;
 
             /* intersect polygons ; once for each side of the rectangle*/
-            poly_clip( &ref_poly,      mm, nn, &tmp_clip_poly ,1 );
-            poly_clip( &tmp_clip_poly, mm, nn, &clip_poly     ,2 );
-            poly_clip( &clip_poly,     mm, nn, &tmp_clip_poly ,3 );
-            poly_clip( &tmp_clip_poly, mm, nn, &clip_poly     ,4 );
+            poly_clip( &ref_poly,      mm, nn, &tmp_clip_poly ,LEFT );
+            poly_clip( &tmp_clip_poly, mm, nn, &clip_poly     ,RIGHT );
+            poly_clip( &clip_poly,     mm, nn, &tmp_clip_poly ,BOTTOM );
+            poly_clip( &tmp_clip_poly, mm, nn, &clip_poly     ,TOP );
 
             /* area of polygon */
             area = get_contour_area( &clip_poly );
@@ -1353,7 +1093,6 @@ int repro_img(void)
             out_data[outpix] += sum;
         }
 
-        outpix--;
         
       } /* end for xx */
     } /* end for yy */
@@ -1368,33 +1107,32 @@ int repro_img(void)
 
   }  /* end while infile loop over stack */
 
-  num_infiles = stk_count( inStack );
 
   /* merge headers */
+  num_infiles = stk_count( inStack );
+  Header_Type *outhdr;
   if (( (strlen( lookup ) == 0 ) ||
         (ds_strcmp_cis(lookup, "none") ==0 )) ||
       ( num_infiles == 1 ) ) {
-    outhdr = hdr[num_infiles-1];
+    outhdr = hdr[0];
   } else {
     outhdr = mergeHdr( lookup, hdr, num_infiles );
   }
-  
 
-  /* create output image if necessary */
-  if ( 1 == using_refimg ) {
-    if ( NULL == ( outBlock = dmImageCreate( outfile, dmDOUBLE,refAxes,2 ))){
+
+
+  /* create output image  */
+  dmBlock *outBlock = NULL;
+  dmDescriptor *outDesc;
+  
+  if ( NULL == ( outBlock = dmImageCreate( outfile, dmDOUBLE,refAxes,2 ))){
       err_msg("ERROR: Cannot create output image '%s'\n", outfile );
       return(-1);
-    }
   }
   outDesc = dmImageGetDataDescriptor( outBlock );
-  
-  /*   dmBlockCopy( inBlock, outBlock, "HEADER"); */
-  putHdr( outBlock, hdrDM_FILE, outhdr, ALL_STS, "reproject_image");
-  put_param_hist_info( outBlock, "reproject_image", NULL, 0 );
-
-  if ( 1 == using_refimg ) dmBlockCopyWCS( refBlock, outBlock);
-  
+  putHdr( outBlock, hdrDM_FILE, outhdr, ALL_STS, "resample_image");
+  put_param_hist_info( outBlock, "resample_image", NULL, 0 );
+  dmBlockCopyWCS( refBlock, outBlock);
   dmSetArray_d( outDesc, out_data, (refAxes[0]*refAxes[1]));
   dmImageClose(outBlock );
   if ( outBlock != refBlock ) dmImageClose( refBlock );
