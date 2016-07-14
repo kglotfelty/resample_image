@@ -25,6 +25,9 @@
 #include <math.h>
 #include <float.h>
 #include <limits.h>
+#include <time.h>
+#include <stdlib.h>
+
 #include <cxcregion.h>
 
 
@@ -227,6 +230,25 @@ int fill_polygon( long subpix,
   
   double delta = 1.0/subpix;
 
+
+  /* This is new here ...
+   * 
+   * In reproject image, we take the output pixel and map it back
+   * to the input pixels, accumulating the fraction of the area it covers
+   * 
+   * In resampling we need to take the input pixel and determine which
+   * pixels in the output it will overlap.  I could re-write these routines,
+   * but to keep kind of in sync with reproject_image I'll keep as are.
+   * 
+   * Basically need to swap 'ref' and 'image' in the above convert_coords
+   * routine.
+   * 
+   */
+  WCS tmp_wcs;
+  tmp_wcs = descs->ref;
+  descs->ref = descs->image;
+  descs->image = tmp_wcs;
+
   
   refidx = 0;
   refpix[0] = xx + 0.5; /* = + 1 - 0.5 */
@@ -291,6 +313,11 @@ int fill_polygon( long subpix,
     refpix[0] -= delta;
   }
   
+
+  /* And now restore these back to their original order */  
+  tmp_wcs = descs->ref;
+  descs->ref = descs->image;
+  descs->image = tmp_wcs;
 
   return(0);
 }
@@ -558,6 +585,8 @@ Parameters *get_parameters(void)
   }    
 
 
+  srand48( time(NULL));
+
 
   return(pars);
     
@@ -666,6 +695,14 @@ int resample_img(void)
   num_infiles = stk_count(inStack);
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
   stk_rewind(inStack);
+
+  long max_buffer = 1000;
+  long *xx_buffer = (long*)calloc(max_buffer, sizeof(long));
+  long *yy_buffer = (long*)calloc(max_buffer, sizeof(long));
+  double *area_buff = (double*)calloc(max_buffer,sizeof(double));
+  
+
+
     
   char *infile;                  /* individual image in stack */
   while ( NULL != (infile = stk_read_next(inStack))) {
@@ -677,81 +714,83 @@ int resample_img(void)
         return(-1);
     }
     
-    /* Okay, we'll look to the input image and map the corners
-       to the image in the output.  This way we only have to process those
-       pixels in the output which could conver the input.  Should
-       save time especially when input image is small piece of the
-       output image ... eg mosaics */
+
+#if 0
+    /* Find bounds of output image that are covered by the input */
     long min_ref_x,min_ref_y,max_ref_x,max_ref_y;
     find_chip_corners( &min_ref_x, &min_ref_y, &max_ref_x, &max_ref_y, 
                  refImage->lAxes, inImage->lAxes, &descs );
+#endif
 
-    /* Begin loop through output data pixels */
+    /* For all pixels in the input image, we need to map them to the output, if any */
+    long mm,nn;
+    for (nn=0;nn<inImage->lAxes[1];nn++) {
+      for (mm=0;mm<inImage->lAxes[0];mm++ ) {
 
-    long xx, yy;
-    for(yy=min_ref_y;yy<max_ref_y;yy++) {
-      long ypix_off;
-      ypix_off = yy*refImage->lAxes[0]; // outside x-loop to save computes
+        /* get image value; weight output pixel by it */
+        double val;
+        val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
+        if ( 0 == val )  continue; // skip it.
 
-      for (xx=min_ref_x;xx<max_ref_x;xx++ ) {
-        
-        /* This creates a polygon around output pixel xx,yy */
-        fill_polygon( pars->subpix, xx, yy,ref_poly.contour, &descs, pars->ctype );
-        
+        /* This creates a polygon around output pixel xx,yy                */        
         /* find the min and max pixels that need to intersect polygon with */
         long xx_min, xx_max, yy_min, yy_max;
+        fill_polygon( pars->subpix, mm, nn, ref_poly.contour, &descs, pars->ctype );
         find_bounding_box( ref_poly, &xx_min, &xx_max, &yy_min, &yy_max );
-        
-        double weight;  
-        double sum;
-        weight  = 0;
-        sum = 0;
 
-        /* for each pixel that could intersect poly check it and get area */
-        long mm,nn;
-        for (nn=yy_min;nn<=yy_max;nn++) {
-          for (mm=xx_min;mm<=xx_max;mm++ ) {
+        long buffer_len;
+        buffer_len = 0;
+
+        long xx, yy;
+        for(yy=yy_min;yy<=yy_max;yy++) {
+          for (xx=xx_min;xx<=xx_max;xx++ ) {        
             double area;
-            double val;
 
-            /* clip polgon against the pixel */
-            super_poly_clip( &ref_poly, &tmp_clip_poly, &clip_poly, mm, nn );
-
-            /* area of polygon */
+            /* clip polgon against the pixel and compute area */
+            super_poly_clip( &ref_poly, &tmp_clip_poly, &clip_poly, xx, yy );
             area = get_contour_area( &clip_poly );
+            if ( 0 == area ) continue;
 
-            /* get image value; weight output pixel by it */
-            val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
-            
-            if ( !ds_dNAN(val) )
-              sum += ( val * area );
-            
-            weight += area;
-            
-          } /* end for mm */
-        } /* end for nn */
-        
-        
-        /* Can either sum up values or compute the average value; this is done here */
-        long outpix;
-        outpix = ypix_off + xx;
-        if ( weight > 0 ) {
-          if ( pars->do_norm )
-            out_data[outpix] += (sum/weight);
-          else
-            out_data[outpix] += sum;
+            xx_buffer[buffer_len] = xx;
+            yy_buffer[buffer_len] = yy;
+            area_buff[buffer_len] = area;
+            buffer_len+=1;
+            if ( buffer_len >= max_buffer ) {
+                max_buffer = max_buffer*2;
+                xx_buffer = (long*)realloc( xx_buffer, sizeof(long)*max_buffer);
+                yy_buffer = (long*)realloc( yy_buffer, sizeof(long)*max_buffer);
+                area_buff = (double*)realloc( area_buff, sizeof(double)*max_buffer);                
+            }
+
+          } /* end for xx (x-axis in ref image ) */
+        } /* end for yy (y-axis in ref image) */
+
+        long bb;
+        for (bb=1;bb<buffer_len;bb++) {
+            area_buff[bb] += area_buff[bb-1];
         }
+        //printf("buffer_len=%ld max area_buff[-1]=%g\n", buffer_len, area_buff[buffer_len-1]);
 
-        
-      } /* end for xx */
-    } /* end for yy */
+        long vv;
+        for (vv=0;vv<val;vv++) {
+            double randval;
+            randval = drand48();
+            for (bb=0;bb<buffer_len;bb++) {
+                if ( randval <= area_buff[bb]) {
+                    break;
+                }
+            }
+            long outpix;
+            outpix = xx_buffer[bb] + (yy_buffer[bb])*refImage->lAxes[0];
+            out_data[outpix] += 1;
+            
+        } /* end for vv */
+
+      } /* end for mm (x-axis in input image) */
+    } /* end for nn (y-axis in input image */
+    
 
     if ( pars->verbose > 2 )  printf("Processing %g%% complete        \n", 100.0 );
-
-
-    // TODO free(data);
-    // TODO free(lAxes);
-    // TODO if ( mask ) free(mask);
 
     dmImageClose( inBlock ); // Need to leave open to do coord x-forms
 
