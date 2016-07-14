@@ -88,6 +88,9 @@ int check_coords( CoordType ctype, WCS_Descriptors descs );
                        
 Image *load_image_file( dmBlock *inBlock );
 int make_polygon(int subpix, Polygon *poly);
+int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
+void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_poly, long mm, long nn ) ;
+
 
 // --------------------------
 
@@ -466,6 +469,38 @@ int make_polygon(int subpix, Polygon *poly)
 
 
 
+int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) 
+{
+    long ii;
+ 
+    *xx_min = ref_poly.contour[0].vertex[0].x-0.5;
+    *yy_min = ref_poly.contour[0].vertex[0].y-0.5;
+    *xx_max = ref_poly.contour[0].vertex[0].x+0.5;
+    *yy_max = ref_poly.contour[0].vertex[0].y+0.5;
+    for(ii=ref_poly.contour[0].num_vertices;--ii;) {
+      *xx_min = MIN( *xx_min, (ref_poly.contour[0].vertex[ii].x-0.5));
+      *yy_min = MIN( *yy_min, (ref_poly.contour[0].vertex[ii].y-0.5));
+      *xx_max = MAX( *xx_max, (ref_poly.contour[0].vertex[ii].x+0.5));
+      *yy_max = MAX( *yy_max, (ref_poly.contour[0].vertex[ii].y+0.5));
+    }
+
+    return(0);
+}
+
+
+void super_poly_clip( Polygon *ref_poly, Polygon *tmp_clip_poly, Polygon *clip_poly, long mm, long nn ) 
+{
+    /* intersect polygons ; once for each side of the rectangle*/
+    poly_clip( ref_poly,      mm, nn, tmp_clip_poly ,LEFT );
+    poly_clip( tmp_clip_poly, mm, nn, clip_poly     ,RIGHT );
+    poly_clip( clip_poly,     mm, nn, tmp_clip_poly ,BOTTOM );
+    poly_clip( tmp_clip_poly, mm, nn, clip_poly     ,TOP );
+}
+
+
+
+
+
 
 
 /* Now onto the main routine */
@@ -560,7 +595,6 @@ int resample_img(void)
   descs.ref.world.yaxis = dmDescriptorGetCoord( refImage->ydesc );
 
 
-
   /* Alloc outptu data array */
   double *out_data;
   out_data = ( double*)calloc( refImage->lAxes[0]*refImage->lAxes[1], sizeof(double));
@@ -569,22 +603,20 @@ int resample_img(void)
 
   /* Now let's start on the input stack */
   Stack inStack;
+  long num_infiles;
+  Header_Type **hdr;
+
   inStack = stk_build( instack );
   if ( ( NULL == inStack ) || ( stk_count(inStack)==0 ) ||
        (( stk_count(inStack)==1 ) && ( strlen(stk_read_num(inStack,1))==0))) {
     err_msg("ERROR: problems opening stack '%s'\n", instack );
     return(-3);
-  }
-
-
-
-  /* Okay, start to process the data */
-    
-  long num_infiles;
-  Header_Type **hdr;
+  }    
   num_infiles = stk_count(inStack);
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
   stk_rewind(inStack);
+
+
     
   char *infile;                  /* individual image in stack */
   while ( NULL != (infile = stk_read_next(inStack))) {
@@ -618,8 +650,7 @@ int resample_img(void)
         return(-1);
     }
 
-  
-  
+    
     Polygon ref_poly, clip_poly, tmp_clip_poly;    
     make_polygon(subpix, &ref_poly);
     make_polygon(subpix, &clip_poly);
@@ -647,69 +678,29 @@ int resample_img(void)
       }
 
       for (xx=min_ref_x;xx<max_ref_x;xx++ ) {
-        long outpix;
-        outpix = ypix_off + xx;
         
-        if ( subpix == 0 ) {  // TODO DELETE THIS, REMOVE FROM .t FILE
-          double val;
-          double refpix[2];
-          double imgpix[2];        
-          long mm,nn;
-
-          refpix[0] = xx+1;
-          refpix[1] = yy+1;
-          convert_coords( refpix, &descs, imgpix,ctype);
-          imgpix[0] -= 0.5; /* = -1 + 0.5 to round */
-          imgpix[1] -= 0.5;
-          
-          mm = imgpix[0]; /* round it */
-          nn = imgpix[1];
-          
-          /* get image value */
-          val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
-
-          if ( !ds_dNAN(val) )
-            out_data[outpix] += val;
-          outpix--;
-          continue;
-        }
-
-      
         /* This creates a polygon around output pixel xx,yy */
         fill_polygon( subpix, xx, yy,ref_poly.contour, &descs, ctype );
         
         /* find the min and max pixels that need to intersect polygon with */
         long xx_min, xx_max, yy_min, yy_max;
-        xx_min = ref_poly.contour[0].vertex[0].x-0.5;
-        yy_min = ref_poly.contour[0].vertex[0].y-0.5;
-        xx_max = ref_poly.contour[0].vertex[0].x+0.5;
-        yy_max = ref_poly.contour[0].vertex[0].y+0.5;
-        long ii;
-        for (ii=4*subpix;--ii;) {
-          xx_min = MIN( xx_min, (ref_poly.contour[0].vertex[ii].x-0.5));
-          yy_min = MIN( yy_min, (ref_poly.contour[0].vertex[ii].y-0.5));
-          xx_max = MAX( xx_max, (ref_poly.contour[0].vertex[ii].x+0.5));
-          yy_max = MAX( yy_max, (ref_poly.contour[0].vertex[ii].y+0.5));
-        }
-
+        find_bounding_box( ref_poly, &xx_min, &xx_max, &yy_min, &yy_max );
         
-        long mm,nn;
+
         double weight;  
         double sum;
         weight  = 0;
         sum = 0;
+
         /* for each pixel that could intersect poly check it and get area */
+        long mm,nn;
         for (nn=yy_min;nn<=yy_max;nn++) {
           for (mm=xx_min;mm<=xx_max;mm++ ) {
                     
             double area;
             double val;
 
-            /* intersect polygons ; once for each side of the rectangle*/
-            poly_clip( &ref_poly,      mm, nn, &tmp_clip_poly ,LEFT );
-            poly_clip( &tmp_clip_poly, mm, nn, &clip_poly     ,RIGHT );
-            poly_clip( &clip_poly,     mm, nn, &tmp_clip_poly ,BOTTOM );
-            poly_clip( &tmp_clip_poly, mm, nn, &clip_poly     ,TOP );
+            super_poly_clip( &ref_poly, &tmp_clip_poly, &clip_poly, mm, nn );
 
             /* area of polygon */
             area = get_contour_area( &clip_poly );
@@ -727,6 +718,8 @@ int resample_img(void)
         
         
         /* Can either sum up values or compute the average value; this is done here */
+        long outpix;
+        outpix = ypix_off + xx;
         if ( weight > 0 ) {
           if ( do_norm )
             out_data[outpix] += (sum/weight);

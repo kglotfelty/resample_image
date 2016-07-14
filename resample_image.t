@@ -101,7 +101,8 @@ toolname="resample_image"
 
 # set up list of tests
 # !!4
-alltests="test_full test_quick test_physical test_logical test_average full_calcgti"
+#alltests="test_full test_quick test_physical test_logical test_average full_calcgti"
+alltests="test_full test_physical test_logical test_average full_calcgti"
 # test_hst test_hst2 test_2mass"
 
 # "short" test to run
@@ -224,8 +225,8 @@ do
     full_calcgti ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=1 clob+ coord=world lookupTab=${lkTab2}"
             ;;
 
-    test_quick ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=0 clob+ coord=world lookupTab=${lkTab1}"
-            ;;
+    ##test_quick ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=0 clob+ coord=world lookupTab=${lkTab1}"
+    ##        ;;
 
     test_physical ) test1_string="resample_image infile=$INDIR/acisf04731N001_full_img2.fits matchfile=$INDIR/bin16.fits outfile=$outfile res=1 clob+ coord=physical lookupTab=${lkTab1}"
             ;;
@@ -233,7 +234,7 @@ do
     test_logical ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=1 clob+ coord=logical lookupTab=${lkTab1}"
             ;;
 
-    test_average ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=0 clob+ coord=world meth=average lookupTab=${lkTab1}"
+    test_average ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=2 clob+ coord=world meth=average lookupTab=${lkTab1}"
             ;;
 
     test_hst ) test1_string="resample_image infile=$INDIR/orion_hst.fits matchfile=$INDIR/orion_chandra.fits outfile=$outfile res=1 clob+ coord=world meth=sum lookupTab=${lkTab1}"
