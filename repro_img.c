@@ -69,13 +69,11 @@ typedef struct {
 */
 int find_chip_corners( long *min_ref_x, long *min_ref_y,
                        long *max_ref_x, long *max_ref_y,
-                       long xlen, long ylen,
-                       long ilen, long jlen,
+                       long *reflen, long *inlen,
                        WCS_Descriptors *desc );
 double get_contour_area( Polygon *clip_poly );
 
 int fill_polygon( long subpix,
-                  double delta,
                   long xx, long yy,
                   VertexList *refpixlist,
                   WCS_Descriptors *descs,
@@ -86,8 +84,10 @@ int convert_coords( double *refpix,
                     double *imgpix,
                     CoordType ctype);
 
+int check_coords( CoordType ctype, WCS_Descriptors descs );
                        
 Image *load_image_file( dmBlock *inBlock );
+int make_polygon(int subpix, Polygon *poly);
 
 // --------------------------
 
@@ -201,7 +201,6 @@ int convert_coords( double *refpix,
 */
 
 int fill_polygon( long subpix,
-                  double delta,
                   long xx, long yy,
                   VertexList *refpixlist,
                   WCS_Descriptors *descs,
@@ -213,6 +212,8 @@ int fill_polygon( long subpix,
   double imgpix[2];
   long ii;
   
+  double delta = 1.0/subpix;
+
   
   refidx = 0;
   refpix[0] = xx + 0.5; /* = + 1 - 0.5 */
@@ -333,16 +334,13 @@ double get_contour_area( Polygon *clip_poly )
 
 int find_chip_corners( long *min_ref_x, long *min_ref_y,
                        long *max_ref_x, long *max_ref_y,
-                       long xlen, long ylen,
-                       long ilen, long jlen,
+                       long *reflen, long *inlen,
                        WCS_Descriptors *desc )
 {
 
   double in_log_loc[2];
   double ref_log_loc[2];
-
-    long vals_x[2], vals_y[2];
-    long ii,jj;
+  long vals_x[2], vals_y[2];
 
 
     /* In this case we are going from the input image to the reference image instead
@@ -360,6 +358,14 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
        Ranges get clipped at the end so extra padding doesn't
        hurt
     */    
+
+    long xlen, ylen, ilen, jlen;
+    xlen = reflen[0];
+    ylen = reflen[1];
+    ilen = inlen[0];
+    jlen = inlen[1];
+
+
     vals_x[0] = -2; 
     vals_y[0] = -2;
     vals_x[1] = ilen+2;
@@ -370,6 +376,7 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
     *max_ref_x = 0;
     *max_ref_y = 0;
 
+    long ii,jj;
     for (ii=0;ii<2;ii++) {
       for (jj=0;jj<2;jj++ ) {
 
@@ -412,6 +419,52 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
     return(0);
 
 }
+
+
+int check_coords( CoordType ctype, WCS_Descriptors descs )
+{
+    /* Some error checking on the WORLD coord calcs */
+    if ( coordWORLD == ctype ) {
+      if ((NULL==descs.image.world.xaxis)||(NULL==descs.ref.world.xaxis)) {
+        err_msg("ERROR: There must be a WCS on both input "
+                "images if coord_sys=world\n");
+        return(-1);
+      } else {
+        char iname[50];
+        char rname[50];
+        long npar;
+        
+        dmCoordGetTransformType( descs.image.world.xaxis, iname, &npar, 49);
+        dmCoordGetTransformType( descs.ref.world.xaxis, rname, &npar, 49 ); 
+
+        /* Not sure if this is really the check to be doing or
+           if you should check some other names */
+        if ( 0 != ds_strcmp_cis( iname, rname)) {
+          err_msg("WARNING: The WCS on the image images should be the same "
+                  "type when using coord_sys=wcs (ie TAN-P)");
+        }                
+      } /* end else coords */      
+    } /* end if coord */
+
+    return(0);
+}
+
+
+int make_polygon(int subpix, Polygon *poly)
+{
+    VertexList *refpixlist = (VertexList*)calloc(1,sizeof(VertexList));   
+    Polygon *ref_poly = (Polygon*)calloc(1,sizeof(Polygon));
+        
+
+    refpixlist->vertex    = (Vertex*)calloc(4*subpix*4, sizeof(Vertex)); // why 4*4, 4 sides
+    refpixlist->num_vertices = 4*subpix;    
+    ref_poly->contour      = refpixlist;
+    *poly = *ref_poly;
+
+    return(0);
+}
+
+
 
 
 
@@ -516,10 +569,8 @@ int resample_img(void)
 
   /* Now let's start on the input stack */
   Stack inStack;
-
   inStack = stk_build( instack );
-  if ( ( NULL == inStack ) ||
-       ( stk_count(inStack)==0 ) ||
+  if ( ( NULL == inStack ) || ( stk_count(inStack)==0 ) ||
        (( stk_count(inStack)==1 ) && ( strlen(stk_read_num(inStack,1))==0))) {
     err_msg("ERROR: problems opening stack '%s'\n", instack );
     return(-3);
@@ -563,69 +614,25 @@ int resample_img(void)
     descs.image.world.xaxis = dmDescriptorGetCoord( inImage->xdesc );
     descs.image.world.yaxis = dmDescriptorGetCoord( inImage->ydesc );
     
-
-    /* Some error checking on the WORLD coord calcs */
-    if ( coordWORLD == ctype ) {
-      if ((NULL==descs.image.world.xaxis)||(NULL==descs.ref.world.xaxis)) {
-        err_msg("ERROR: There must be a WCS on both input "
-                "images if coord_sys=world\n");
+    if ( 0 != check_coords( ctype, descs ) ) {
         return(-1);
-      } else {
-        char iname[50];
-        char rname[50];
-        long npar;
-        
-        dmCoordGetTransformType( descs.image.world.xaxis, iname, &npar, 49);
-        dmCoordGetTransformType( descs.ref.world.xaxis, rname, &npar, 49 ); 
-
-        /* Not sure if this is really the check to be doing or
-           if you should check some other names */
-        if ( 0 != ds_strcmp_cis( iname, rname)) {
-          err_msg("WARNING: The WCS on the image images should be the same "
-                  "type when using coord_sys=wcs (ie TAN-P)");
-        }
-                
-      } /* end else coords */
-      
-    } /* end if coord */
+    }
 
   
   
-    VertexList refpixlist;   
-    VertexList clip_list;
-    VertexList tmp_clip_list;
+    Polygon ref_poly, clip_poly, tmp_clip_poly;    
+    make_polygon(subpix, &ref_poly);
+    make_polygon(subpix, &clip_poly);
+    make_polygon(subpix, &tmp_clip_poly);
 
-    Polygon ref_poly;
-    Polygon clip_poly;
-    Polygon tmp_clip_poly;
-
-    double delta;
-    
-    delta = 1.0 / subpix;
-        
-    /* Set up some data structures and alloc memory */
-    refpixlist.vertex = ( Vertex*)calloc(4*subpix, sizeof(Vertex)); /*leak*/
-    refpixlist.num_vertices = 4*subpix;
-    
-    ref_poly.contour = &refpixlist;
-    clip_poly.contour = &clip_list;
-    tmp_clip_poly.contour = &tmp_clip_list;
-
-    clip_list.vertex = (Vertex*)calloc(4*subpix*4,sizeof(Vertex));
-    tmp_clip_list.vertex = (Vertex*)calloc(4*subpix*4,sizeof(Vertex));
-
-    
     /* Okay, we'll look to the input image and map the corners
        to the image in the output.  This way we only have to process those
        pixels in the output which could conver the input.  Should
        save time especially when input image is small piece of the
        output image ... eg mosaics */
-    long min_ref_x,min_ref_y;
-    long max_ref_x,max_ref_y;
+    long min_ref_x,min_ref_y,max_ref_x,max_ref_y;
     find_chip_corners( &min_ref_x, &min_ref_y, &max_ref_x, &max_ref_y, 
-                 refImage->lAxes[0], refImage->lAxes[1],
-                 inImage->lAxes[0], inImage->lAxes[1],
-                 &descs );
+                 refImage->lAxes, inImage->lAxes, &descs );
 
     /* Begin loop through data */
 
@@ -667,23 +674,22 @@ int resample_img(void)
           continue;
         }
 
-
       
         /* This creates a polygon around output pixel xx,yy */
-        long xx_min, xx_max, yy_min, yy_max;
-        fill_polygon( subpix, delta, xx, yy,&refpixlist, &descs, ctype );
+        fill_polygon( subpix, xx, yy,ref_poly.contour, &descs, ctype );
         
         /* find the min and max pixels that need to intersect polygon with */
-        xx_min = refpixlist.vertex[0].x-0.5;
-        yy_min = refpixlist.vertex[0].y-0.5;
-        xx_max = refpixlist.vertex[0].x+0.5;
-        yy_max = refpixlist.vertex[0].y+0.5;
+        long xx_min, xx_max, yy_min, yy_max;
+        xx_min = ref_poly.contour[0].vertex[0].x-0.5;
+        yy_min = ref_poly.contour[0].vertex[0].y-0.5;
+        xx_max = ref_poly.contour[0].vertex[0].x+0.5;
+        yy_max = ref_poly.contour[0].vertex[0].y+0.5;
         long ii;
         for (ii=4*subpix;--ii;) {
-          xx_min = MIN( xx_min, (refpixlist.vertex[ii].x-0.5));
-          yy_min = MIN( yy_min, (refpixlist.vertex[ii].y-0.5));
-          xx_max = MAX( xx_max, (refpixlist.vertex[ii].x+0.5));
-          yy_max = MAX( yy_max, (refpixlist.vertex[ii].y+0.5));
+          xx_min = MIN( xx_min, (ref_poly.contour[0].vertex[ii].x-0.5));
+          yy_min = MIN( yy_min, (ref_poly.contour[0].vertex[ii].y-0.5));
+          xx_max = MAX( xx_max, (ref_poly.contour[0].vertex[ii].x+0.5));
+          yy_max = MAX( yy_max, (ref_poly.contour[0].vertex[ii].y+0.5));
         }
 
         
@@ -694,7 +700,6 @@ int resample_img(void)
         sum = 0;
         /* for each pixel that could intersect poly check it and get area */
         for (nn=yy_min;nn<=yy_max;nn++) {
-
           for (mm=xx_min;mm<=xx_max;mm++ ) {
                     
             double area;
