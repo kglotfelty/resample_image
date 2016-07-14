@@ -64,9 +64,6 @@ int fill_polygon( long subpix,
                   VertexList *refpixlist,
                   WCS_Descriptors *descs,
                   CoordType ctype);
-
-
-// # ----------------------
                   
 int convert_coords( double *refpix,
                     WCS_Descriptors *descs,
@@ -74,6 +71,8 @@ int convert_coords( double *refpix,
                     CoordType ctype);
 
                        
+
+// --------------------------
 
 short *get_image_mask( dmBlock *inBlock, void *data, dmDataType dt, 
                        long *lAxes, regRegion *dss, long null, short has_null, 
@@ -411,19 +410,11 @@ short  get_image_wcs( dmBlock *imgBlock, dmDescriptor **xAxis,
 
 
 
-extern int poly_clip( Polygon *pp, long qx, long qy,
-               Polygon *ret, short edge);
-
-
 
 
 /* Routine to convert coordinates */
 
-/* Note: 
-   Thereis a known bug in that if the input image has RA,DEC and the matchfile has DEC,RA
-   the output image will be bogus.  It'll be in this routine where we'll need to
-   swap the axes at the appropriate point in the transform.
-
+/*
   Note:  There are cases where the dmCoordCalc/Invert will fail.
     We want to plow through these since the error returned may not be 
     fatal to what we want to do; so wait till end to return
@@ -668,17 +659,19 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
           tmp_wcs = desc->ref;
           desc->ref = desc->image;
           desc->image = tmp_wcs;
-          return(-1);
-          
+          *min_ref_x = 0;
+          *min_ref_y = 0;
+          *max_ref_x = xlen;
+          *max_ref_y = ylen;
+          return(0);
         }
-
 
         *min_ref_x = MIN( *min_ref_x, (ref_log_loc[0]-1));
         *min_ref_y = MIN( *min_ref_y, (ref_log_loc[1]-1));
         *max_ref_x = MAX( *max_ref_x, (ref_log_loc[0]-1));
         *max_ref_y = MAX( *max_ref_y, (ref_log_loc[1]-1));
         
-      }
+      } /* end for jj */
     } /* end for ii */
     
     if ( *min_ref_x < 0 ) *min_ref_x = 0;
@@ -702,8 +695,6 @@ int find_chip_corners( long *min_ref_x, long *min_ref_y,
 
 
 /* Now onto the main routine */
-
-int resample_img(void);
 
 int resample_img(void)
 {
@@ -956,14 +947,8 @@ int resample_img(void)
        output image ... eg mosaics */
     long min_ref_x,min_ref_y;
     long max_ref_x,max_ref_y;
-    if ( 0 != find_chip_corners( &min_ref_x, &min_ref_y, &max_ref_x, &max_ref_y, 
-                                 refAxes[0], refAxes[1], lAxes[0], lAxes[1], &descs )) {
-      min_ref_x = 0;
-      min_ref_y = 0;
-      max_ref_x = refAxes[0];
-      max_ref_y = refAxes[1];
-      /* WARNING? */
-    }
+    find_chip_corners( &min_ref_x, &min_ref_y, &max_ref_x, &max_ref_y, 
+                 refAxes[0], refAxes[1], lAxes[0], lAxes[1], &descs );
 
     /* Begin loop through data */
 

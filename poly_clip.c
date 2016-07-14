@@ -21,51 +21,6 @@
 
 #include <repro_img.h>
 #include <stdlib.h>
-
-
-int poly_clip( Polygon *pp, long qx, long qy,
-               Polygon *ret, short edge);
-
-
-#ifdef HAS_MAIN
-
-int main() 
-{
-
-  Polygon pp;
-  Polygon tmp;
-  Polygon ret;
-  VertexList vv_list;
-  Vertex *vv;
-  int hole = 0;
-
-  pp.num_contours = 1;
-  pp.hole = &hole;
-  pp.contour = &vv_list;
-
-  vv = (Vertex*)calloc(4,sizeof(Vertex));
-  vv_list.num_vertices = 4;
-  vv_list.vertex = vv;
-  
-  vv[0].x = 9.0;  vv[0].y = 9.0;
-  vv[1].x = 10.0; vv[1].y = 9.0;
-  vv[2].x = 10.0; vv[2].y = 10.0;
-  vv[3].x = 9.0;  vv[3].y = 10.0;
-  
-  poly_clip( &pp, 10, 10, &ret, 1 );
-  poly_clip( &ret, 10, 10, &tmp, 2 );
-  /* free */
-  poly_clip( &tmp, 10, 10, &ret, 3 );
-  poly_clip( &ret, 10, 10, &tmp, 4 );
-  
-
-  return(0);
-
-}
-
-#endif
-
-
      
 
 /*
@@ -298,9 +253,54 @@ int poly_clip( Polygon *pp, long qx, long qy,
   } /* end loop over ii */
 
 
+  return(0);
 
+}
+
+
+
+
+
+
+
+#ifdef HAS_MAIN
+
+// Test routine only
+
+int main() 
+{
+
+  Polygon pp;
+  Polygon tmp;
+  Polygon ret;
+  VertexList vv_list;
+  Vertex *vv;
+  int hole = 0;
+
+  pp.num_contours = 1;
+  pp.hole = &hole;
+  pp.contour = &vv_list;
+
+  vv = (Vertex*)calloc(4,sizeof(Vertex));
+  vv_list.num_vertices = 4;
+  vv_list.vertex = vv;
+  
+  vv[0].x = 9.0;  vv[0].y = 9.0;
+  vv[1].x = 10.0; vv[1].y = 9.0;
+  vv[2].x = 10.0; vv[2].y = 10.0;
+  vv[3].x = 9.0;  vv[3].y = 10.0;
+  
+  poly_clip( &pp, 10, 10, &ret, 1 );
+  poly_clip( &ret, 10, 10, &tmp, 2 );
+  /* free */
+  poly_clip( &tmp, 10, 10, &ret, 3 );
+  poly_clip( &ret, 10, 10, &tmp, 4 );
+  
 
   return(0);
 
-
 }
+
+#endif
+
+
