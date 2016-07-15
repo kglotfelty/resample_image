@@ -79,6 +79,12 @@ typedef struct {
   double *area;      
 } Buffer;
 
+typedef struct {
+  Polygon *ref;
+  Polygon *tmp;
+  Polygon *clip;
+} Polygons;
+
 
 
 double get_contour_area( Polygon *clip_poly );
@@ -98,6 +104,11 @@ void cummulative( Buffer *buffer );
 long sample_distro( Buffer *buffer, Image *refImage);
 int is_invalid_val( double val );
 void distribute_counts( Parameters *pars, Buffer *buffer, Image *refImage, double val, double *out_data);
+Polygons *make_polys( int subpix );
+int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Parameters *pars, Buffer *buffer, 
+    Polygons *polys, double *out_data );
+
+
 
 // --------------------------
 
@@ -558,22 +569,7 @@ Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Head
     return(inImage);
 }
 
-/*
- *  The way resample image works is that it determines the amount of
- * area each input covers in each of the output pixels. So for example
- * if the input image is binned by 4 and the reference/output image is 
- * binned by 1, then 1 pixel in the input will map to 16 pixels in the 
- * output.
- * 
- * The area is then used to randomly sample the **counts** (ie 'val')
- * from the input image, sending some fraction of the counts into
- * each of the output pixels based on the relative area coverage.
- * 
- * This preserves the integer nature of the data (input must be int
- * datatype).  Which means that the output can be used with
- * for wavdetect or any other tool expecting Possion stats.
- * 
- * The buffer stuff then is keeping track of which pixels 
+ /* The buffer stuff then is keeping track of which pixels 
  * in the output map to the "current" input pixel and with what
  * area-fraction.
  */
@@ -693,6 +689,82 @@ void distribute_counts( Parameters *pars, Buffer *buffer, Image *refImage, doubl
 
 }
 
+Polygons *make_polys( int subpix )
+{
+    Polygons *polys = (Polygons*)calloc(1,sizeof(Polygons));
+    polys->ref = make_polygon(subpix);
+    polys->tmp = make_polygon(subpix);
+    polys->clip = make_polygon(subpix);
+    return(polys);
+}
+
+
+/*
+ *  The way resample image works is that it determines the amount of
+ * area each input covers in each of the output pixels. So for example
+ * if the input image is binned by 4 and the reference/output image is 
+ * binned by 1, then 1 pixel in the input will map to 16 pixels in the 
+ * output.
+ * 
+ * The area is then used to randomly sample the **counts** (ie 'val')
+ * from the input image, sending some fraction of the counts into
+ * each of the output pixels based on the relative area coverage.
+ * 
+ * This preserves the integer nature of the data (input must be int
+ * datatype).  Which means that the output can be used with
+ * for wavdetect or any other tool expecting Possion stats.
+ */
+int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Parameters *pars, Buffer *buffer, 
+    Polygons *polys, double *out_data )
+{
+
+    /* For all pixels in the input image, we need to map them to the output, if any */
+    long mm,nn;
+    for (nn=0;nn<inImage->lAxes[1];nn++) { // infile Y axis
+      for (mm=0;mm<inImage->lAxes[0];mm++ ) { // infile X axis
+
+        /* get image value; */
+        double val;
+        val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
+        if (is_invalid_val(val)) continue;
+
+        /* This creates a polygon around output pixel mm,nn                */        
+        /* find the min and max pixels that need to intersect polygon with */
+        long xx_min, xx_max, yy_min, yy_max;
+        fill_polygon( pars->subpix, mm, nn, polys->ref->contour, descs, pars->ctype );
+        find_bounding_box( polys->ref, &xx_min, &xx_max, &yy_min, &yy_max );
+
+        buffer->len = 0;
+        long xx, yy;
+        for(yy=yy_min;yy<=yy_max;yy++) { // refImage Y axis
+          for (xx=xx_min;xx<=xx_max;xx++ ) {  // refImage X axis
+            double area;
+
+            /* clip polgon against the pixel and compute area */
+            super_poly_clip( polys->ref, polys->tmp, polys->clip, xx, yy );
+            area = get_contour_area( polys->clip );
+            if ( 0 == area ) continue;
+            add_to_buffer( buffer, xx, yy, area );
+
+          } /* end for xx (x-axis in ref image ) */
+        } /* end for yy (y-axis in ref image) */
+
+        if (0 == buffer->len) continue; // no coverage, skip it
+
+        cummulative( buffer );
+
+        distribute_counts( pars, buffer, refImage, val, out_data );
+
+      } /* end for mm (x-axis in input image) */
+    } /* end for nn (y-axis in input image */
+    
+    return(0);
+
+}
+
+
+
+
 
 //---------------------------------------------------------
 /* Now onto the main routine */
@@ -701,27 +773,29 @@ int resample_img(void)
 {
 
   Parameters *pars;
+  Polygons *polys;
+  Buffer *buffer;
+  WCS_Descriptors *descs;
   
   if ( NULL == ( pars = get_parameters())) {
       return(-1); // error message internal
   }
 
   /* These polys are used to store regions around each point */
-  Polygon *ref_poly, *clip_poly, *tmp_clip_poly;    
-  ref_poly = make_polygon(pars->subpix);
-  clip_poly = make_polygon(pars->subpix);
-  tmp_clip_poly = make_polygon(pars->subpix);
+  polys = make_polys( pars->subpix);
 
   /* These buffer values contain the fraction of areas the input pixel covers
    * in the reference & output image */
-  Buffer *buffer;
   buffer = make_buffer();
 
-  Image *refImage;
-  WCS_Descriptors descs;
+  /* Store the coordinate descriptors */
+  descs = (WCS_Descriptors*)calloc(1,sizeof( WCS_Descriptors));
+
+
   double *out_data;
+  Image *refImage;
   dmBlock *refBlock;  
-  if ( NULL == (refImage = load_ref_image( pars, &descs, &refBlock, &out_data))) {
+  if ( NULL == (refImage = load_ref_image( pars, descs, &refBlock, &out_data))) {
       return(-1);
   }
 
@@ -741,50 +815,11 @@ int resample_img(void)
     Image *inImage;
     dmBlock *inBlock;    
     num_infiles--;
-    if ( NULL == ( inImage = load_infile_image( pars, infile, &inBlock, hdr+num_infiles, &descs ))) {
+    if ( NULL == ( inImage = load_infile_image( pars, infile, &inBlock, hdr+num_infiles, descs ))) {
         return(-1);
     }    
 
-    /* For all pixels in the input image, we need to map them to the output, if any */
-    long mm,nn;
-    for (nn=0;nn<inImage->lAxes[1];nn++) { // infile Y axis
-      for (mm=0;mm<inImage->lAxes[0];mm++ ) { // infile X axis
-
-        /* get image value; */
-        double val;
-        val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
-        if (is_invalid_val(val)) continue;
-
-        /* This creates a polygon around output pixel mm,nn                */        
-        /* find the min and max pixels that need to intersect polygon with */
-        long xx_min, xx_max, yy_min, yy_max;
-        fill_polygon( pars->subpix, mm, nn, ref_poly->contour, &descs, pars->ctype );
-        find_bounding_box( ref_poly, &xx_min, &xx_max, &yy_min, &yy_max );
-
-        buffer->len = 0;
-        long xx, yy;
-        for(yy=yy_min;yy<=yy_max;yy++) { // refImage Y axis
-          for (xx=xx_min;xx<=xx_max;xx++ ) {  // refImage X axis
-            double area;
-
-            /* clip polgon against the pixel and compute area */
-            super_poly_clip( ref_poly, tmp_clip_poly, clip_poly, xx, yy );
-            area = get_contour_area( clip_poly );
-            if ( 0 == area ) continue;
-            add_to_buffer( buffer, xx, yy, area );
-
-          } /* end for xx (x-axis in ref image ) */
-        } /* end for yy (y-axis in ref image) */
-
-        if (0 == buffer->len) continue; // no coverage, skip it
-
-        cummulative( buffer );
-
-        distribute_counts( pars, buffer, refImage, val, out_data );
-
-      } /* end for mm (x-axis in input image) */
-    } /* end for nn (y-axis in input image */
-    
+    process_infile( inImage, refImage, descs, pars, buffer, polys, out_data );
 
     if ( pars->verbose > 2 )  printf("Processing %g%% complete        \n", 100.0 );
     free_image( inImage );
