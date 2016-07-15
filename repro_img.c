@@ -50,6 +50,7 @@ typedef struct {
   short *mask;        // mask of valid pixels
   dmDescriptor *xdesc;  // X (or sky) coordinate descriptor
   dmDescriptor *ydesc;  // Y coordinate descriptor
+  dmBlock *block; // The block image came from
 } Image;
 
 /* Input parameters */
@@ -94,8 +95,8 @@ Image *load_image_file( dmBlock *inBlock );
 Polygon *make_polygon(int subpix);
 int find_bounding_box( Polygon *ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
 Parameters* get_parameters(void);
-Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBlock, double **out_data);
-Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Header_Type **hdr, WCS_Descriptors *descs  );
+Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, double **out_data);
+Image *load_infile_image(Parameters *pars, char *infile, Header_Type **hdr, WCS_Descriptors *descs  );
 void free_image( Image *img );
 Buffer *make_buffer(void);
 void add_to_buffer( Buffer *buffer, long xx, long yy, double area );
@@ -145,6 +146,7 @@ Image *load_image_file( dmBlock *inBlock )
   img->mask = mask;
   img->xdesc = xdesc;
   img->ydesc = ydesc;
+  img->block = inBlock;
 
   return(img);
 }
@@ -505,16 +507,17 @@ Parameters *get_parameters(void)
 
 
 /* Load the reference image.  Really only care about the WCS here */
-Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBlock, double **out_data)
+Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, double **out_data)
 {
   Image *refImage;
+  dmBlock *blk;
 
-  if ( NULL == ( *refBlock = dmImageOpen( pars->reffile) ) ) {
+  if ( NULL == ( blk = dmImageOpen( pars->reffile) ) ) {
       err_msg("ERROR: Cannot open image '%s'\n", pars->reffile );
       return(NULL);
   }
   
-  if ( NULL == ( refImage = load_image_file( *refBlock ))) {
+  if ( NULL == ( refImage = load_image_file( blk ))) {
       err_msg("ERROR: Cannot open image '%s'\n", pars->reffile );
       return(NULL);      
   }
@@ -532,21 +535,22 @@ Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBl
 
 
 /* Load the infile image. */
-Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Header_Type **hdr, WCS_Descriptors *descs  )
+Image *load_infile_image(Parameters *pars, char *infile, Header_Type **hdr, WCS_Descriptors *descs  )
 {
     Image *inImage;
+    dmBlock *blk;
 
     if ( pars->verbose > 1 ) {
       printf("\nProcessing input file '%s'\n", infile );
     }
      
     /* Now load the image */
-    if ( NULL == ( *inBlock = dmImageOpen( infile) ) ) {
+    if ( NULL == ( blk = dmImageOpen( infile) ) ) {
       err_msg("ERROR: Cannot open image '%s'\n", infile );
       return(NULL);
     }
 
-    if ( NULL == ( inImage = load_image_file( *inBlock ))) {
+    if ( NULL == ( inImage = load_image_file( blk ))) {
       err_msg("ERROR: Cannot open image '%s'\n", infile );
       return(NULL);        
     }
@@ -559,7 +563,7 @@ Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Head
     }
     
     
-    *hdr = getHdr( *inBlock, hdrDM_FILE );
+    *hdr = getHdr( inImage->block, hdrDM_FILE );
 
     descs->image.physical.xaxis = inImage->xdesc;
     descs->image.physical.yaxis = inImage->ydesc;
@@ -625,6 +629,7 @@ void cummulative( Buffer *buffer )
         buffer->area[bb] /= buffer->area[buffer->len-1];
 
 }
+
 
 long sample_distro( Buffer *buffer, Image *refImage)
 {
@@ -772,9 +777,6 @@ int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Par
 }
 
 
-
-
-
 //---------------------------------------------------------
 /* Now onto the main routine */
 
@@ -803,44 +805,42 @@ int resample_img(void)
 
   double *out_data;
   Image *refImage;
-  dmBlock *refBlock;  
-  if ( NULL == (refImage = load_ref_image( pars, descs, &refBlock, &out_data))) {
+  if ( NULL == (refImage = load_ref_image( pars, descs, &out_data))) {
       return(-1);
   }
 
   /* Now let's start on the input stack */
   Stack inStack;
   long num_infiles;
-  Header_Type **hdr;
-
   inStack = stk_build( pars->instack );
   num_infiles = stk_count(inStack);
+
+  Header_Type **hdr;
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
-  stk_rewind(inStack);
   
-  char *infile;                  /* individual image in stack */
-  while ( NULL != (infile = stk_read_next(inStack))) {
+  long ii;
+  for (ii=0;ii<num_infiles;ii++) {
 
+    char *infile;                  /* individual image in stack */
     Image *inImage;
-    dmBlock *inBlock;    
-    num_infiles--;
 
-    if ( NULL == ( inImage = load_infile_image( pars, infile, &inBlock, hdr+num_infiles, descs ))) {
+    infile = stk_read_num(inStack, ii+1);
+
+    if ( NULL == ( inImage = load_infile_image( pars, infile, hdr+ii, descs ))) {
         return(-1);
     }    
 
     process_infile( inImage, refImage, descs, pars, buffer, polys, out_data );
 
     if ( pars->verbose > 2 )  printf("Processing %g%% complete        \n", 100.0 );
+    dmImageClose( inImage->block ); // Need to leave open to do coord x-forms
     free_image( inImage );
-    dmImageClose( inBlock ); // Need to leave open to do coord x-forms
 
-  }  /* end while infile loop over stack */
+  }  /* end for ii */
 
 
   /* merge headers */
   Header_Type *outhdr;
-  num_infiles = stk_count( inStack );
   if (( (strlen( pars->lookup ) == 0 ) ||
         (ds_strcmp_cis(pars->lookup, "none") ==0 )) ||
       ( num_infiles == 1 ) ) {
@@ -861,10 +861,10 @@ int resample_img(void)
   outDesc = dmImageGetDataDescriptor( outBlock );
   putHdr( outBlock, hdrDM_FILE, outhdr, ALL_STS, "resample_image");
   put_param_hist_info( outBlock, "resample_image", NULL, 0 );
-  dmBlockCopyWCS( refBlock, outBlock);
+  dmBlockCopyWCS( refImage->block, outBlock);
   dmSetArray_d( outDesc, out_data, refImage->lAxes[0]*refImage->lAxes[1]);
   dmImageClose( outBlock );
-  dmImageClose( refBlock );
+  dmImageClose( refImage->block );
 
   return(0);
 
