@@ -95,7 +95,7 @@ Image *load_image_file( dmBlock *inBlock );
 Polygon *make_polygon(int subpix);
 int find_bounding_box( Polygon *ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
 Parameters* get_parameters(void);
-Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, double **out_data);
+Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs);
 Image *load_infile_image(Parameters *pars, char *infile, Header_Type **hdr, WCS_Descriptors *descs  );
 void free_image( Image *img );
 Buffer *make_buffer(void);
@@ -107,7 +107,8 @@ void distribute_counts( Parameters *pars, Buffer *buffer, Image *refImage, doubl
 Polygons *make_polys( int subpix );
 int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Parameters *pars, Buffer *buffer, 
     Polygons *polys, double *out_data );
-
+Header_Type *merge_headers( Parameters *pars, long num_infiles, Header_Type **hdr );
+int write_output( Parameters *pars, Image *refImage, double *out_data, long num_infiles, Header_Type **hdr );
 
 
 // --------------------------
@@ -181,6 +182,11 @@ void free_image( Image *img )
     fatal to what we want to do; so wait till end to return
     the error code. (Only caught in 1 place below).
 */
+/*
+ *  ** This code is different than reproject_image.
+ * This code does coord calcs from image to ref.  The reproject_image
+ * code is *intentionally* the other was around.
+ */
 int convert_coords( double *refpix,
                     WCS_Descriptors *descs,
                     double *imgpix,
@@ -195,16 +201,16 @@ int convert_coords( double *refpix,
   switch (ctype) {
 
   case coordWORLD: {
-    if ( dmSUCCESS != dmCoordCalc_d( descs->ref.physical.xaxis, refpix, refphys ) ) retval=-1;
-    if ( dmSUCCESS != dmCoordCalc_d( descs->ref.world.xaxis, refphys, refwrld )) retval=-1;
-    if ( dmSUCCESS != dmCoordInvert_d( descs->image.world.xaxis, refwrld, imgphys )) retval=-1;
-    if ( dmSUCCESS != dmCoordInvert_d( descs->image.physical.xaxis, imgphys, imgpix )) retval=-1;
+    if ( dmSUCCESS != dmCoordCalc_d( descs->image.physical.xaxis, refpix, refphys ) ) retval=-1;
+    if ( dmSUCCESS != dmCoordCalc_d( descs->image.world.xaxis, refphys, refwrld )) retval=-1;
+    if ( dmSUCCESS != dmCoordInvert_d( descs->ref.world.xaxis, refwrld, imgphys )) retval=-1;
+    if ( dmSUCCESS != dmCoordInvert_d( descs->ref.physical.xaxis, imgphys, imgpix )) retval=-1;
     
-    if ( descs->ref.physical.yaxis ) {
-      if ( dmSUCCESS != dmCoordCalc_d( descs->ref.physical.yaxis, refpix+1, refphys+1 )) retval=-1;
-      if ( dmSUCCESS != dmCoordCalc_d( descs->ref.world.yaxis, refphys+1, refwrld+1 )) retval=-1;
-      if ( dmSUCCESS != dmCoordInvert_d(  descs->image.world.yaxis, refwrld+1, imgphys+1 )) retval=-1;
-      if ( dmSUCCESS != dmCoordInvert_d( descs->image.physical.yaxis, imgphys+1, imgpix+1 )) retval=-1;
+    if ( descs->image.physical.yaxis ) {
+      if ( dmSUCCESS != dmCoordCalc_d( descs->image.physical.yaxis, refpix+1, refphys+1 )) retval=-1;
+      if ( dmSUCCESS != dmCoordCalc_d( descs->image.world.yaxis, refphys+1, refwrld+1 )) retval=-1;
+      if ( dmSUCCESS != dmCoordInvert_d(  descs->ref.world.yaxis, refwrld+1, imgphys+1 )) retval=-1;
+      if ( dmSUCCESS != dmCoordInvert_d( descs->ref.physical.yaxis, imgphys+1, imgpix+1 )) retval=-1;
     }
     break;
   }
@@ -216,11 +222,11 @@ int convert_coords( double *refpix,
   }
 
   case coordPHYSICAL: {
-    if ( dmSUCCESS != dmCoordCalc_d( descs->ref.physical.xaxis, refpix, refphys )) retval=-1;
-    if ( dmSUCCESS != dmCoordInvert_d( descs->image.physical.xaxis, refphys, imgpix )) retval=-1;
-    if (  descs->ref.physical.yaxis ) {
-      if ( dmSUCCESS != dmCoordCalc_d( descs->ref.physical.yaxis, refpix+1, refphys+1 )) retval=-1;
-      if ( dmSUCCESS != dmCoordInvert_d( descs->image.physical.yaxis, refphys+1, imgpix+1 )) retval=-1;
+    if ( dmSUCCESS != dmCoordCalc_d( descs->image.physical.xaxis, refpix, refphys )) retval=-1;
+    if ( dmSUCCESS != dmCoordInvert_d( descs->ref.physical.xaxis, refphys, imgpix )) retval=-1;
+    if (  descs->image.physical.yaxis ) {
+      if ( dmSUCCESS != dmCoordCalc_d( descs->image.physical.yaxis, refpix+1, refphys+1 )) retval=-1;
+      if ( dmSUCCESS != dmCoordInvert_d( descs->ref.physical.yaxis, refphys+1, imgpix+1 )) retval=-1;
     }
     break;
   }
@@ -254,25 +260,6 @@ int fill_polygon( long subpix,
   long ii;
   
   double delta = 1.0/subpix;
-
-
-  /* This is new here ...
-   * 
-   * In reproject image, we take the output pixel and map it back
-   * to the input pixels, accumulating the fraction of the area it covers
-   * 
-   * In resampling we need to take the input pixel and determine which
-   * pixels in the output it will overlap.  I could re-write these routines,
-   * but to keep kind of in sync with reproject_image I'll keep as are.
-   * 
-   * Basically need to swap 'ref' and 'image' in the above convert_coords
-   * routine.
-   * 
-   */
-  WCS tmp_wcs;
-  tmp_wcs = descs->ref;
-  descs->ref = descs->image;
-  descs->image = tmp_wcs;
 
   
   refidx = 0;
@@ -324,10 +311,6 @@ int fill_polygon( long subpix,
     refpix[0] -= delta;
   }
   
-  /* And now restore these back to their original order */  
-  tmp_wcs = descs->ref;
-  descs->ref = descs->image;
-  descs->image = tmp_wcs;
 
   return(0);
 }
@@ -507,7 +490,7 @@ Parameters *get_parameters(void)
 
 
 /* Load the reference image.  Really only care about the WCS here */
-Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, double **out_data)
+Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs)
 {
   Image *refImage;
   dmBlock *blk;
@@ -526,9 +509,6 @@ Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, double **out_da
   descs->ref.physical.yaxis = refImage->ydesc;
   descs->ref.world.xaxis = dmDescriptorGetCoord( refImage->xdesc );
   descs->ref.world.yaxis = dmDescriptorGetCoord( refImage->ydesc );
-
-  /* Alloc outptu data array */
-  *out_data = ( double*)calloc( refImage->lAxes[0]*refImage->lAxes[1], sizeof(double));
 
   return(refImage);
 }
@@ -777,6 +757,49 @@ int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Par
 }
 
 
+
+Header_Type *merge_headers( Parameters *pars, long num_infiles, Header_Type **hdr )
+{
+
+  if ( 1 == num_infiles ) 
+    return(hdr[0]);
+  if ( 0 == strlen(pars->lookup)) 
+    return(hdr[0]);
+  if ( 0 == ds_strcmp_cis(pars->lookup, "none")) 
+    return(hdr[0]);
+
+  return( mergeHdr( pars->lookup, hdr, num_infiles ));
+}
+
+
+
+
+int write_output( Parameters *pars, Image *refImage, double *out_data, long num_infiles, Header_Type **hdr )
+{
+  /* merge headers */
+  Header_Type *outhdr;
+  outhdr = merge_headers( pars, num_infiles, hdr );
+
+  /* create output image  */
+  dmBlock *outBlock = NULL;
+  dmDescriptor *outDesc;
+  
+  if ( NULL == ( outBlock = dmImageCreate( pars->outfile, dmLONG,refImage->lAxes,2 ))){
+      err_msg("ERROR: Cannot create output image '%s'\n", pars->outfile );
+      return(-1);
+  }
+  outDesc = dmImageGetDataDescriptor( outBlock );
+  putHdr( outBlock, hdrDM_FILE, outhdr, ALL_STS, "resample_image");
+  put_param_hist_info( outBlock, "resample_image", NULL, 0 );
+  dmBlockCopyWCS( refImage->block, outBlock);
+  dmSetArray_d( outDesc, out_data, refImage->lAxes[0]*refImage->lAxes[1]);
+  dmImageClose( outBlock );
+  dmImageClose( refImage->block );
+
+  return(0);
+}
+
+
 //---------------------------------------------------------
 /* Now onto the main routine */
 
@@ -802,12 +825,15 @@ int resample_img(void)
   /* Store the coordinate descriptors */
   descs = (WCS_Descriptors*)calloc(1,sizeof( WCS_Descriptors));
 
-
-  double *out_data;
+  /* Load the ref image info*/
   Image *refImage;
-  if ( NULL == (refImage = load_ref_image( pars, descs, &out_data))) {
+  if ( NULL == (refImage = load_ref_image( pars, descs))) {
       return(-1);
   }
+
+  /* Allocate output array */
+  double *out_data;
+  out_data = (double*)calloc(refImage->lAxes[0]*refImage->lAxes[1], sizeof(double));
 
   /* Now let's start on the input stack */
   Stack inStack;
@@ -817,54 +843,27 @@ int resample_img(void)
 
   Header_Type **hdr;
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
-  
+
+  /* Begin loop over input files */  
   long ii;
   for (ii=0;ii<num_infiles;ii++) {
-
     char *infile;                  /* individual image in stack */
     Image *inImage;
 
     infile = stk_read_num(inStack, ii+1);
-
     if ( NULL == ( inImage = load_infile_image( pars, infile, hdr+ii, descs ))) {
         return(-1);
     }    
 
     process_infile( inImage, refImage, descs, pars, buffer, polys, out_data );
 
-    if ( pars->verbose > 2 )  printf("Processing %g%% complete        \n", 100.0 );
     dmImageClose( inImage->block ); // Need to leave open to do coord x-forms
     free_image( inImage );
 
   }  /* end for ii */
 
 
-  /* merge headers */
-  Header_Type *outhdr;
-  if (( (strlen( pars->lookup ) == 0 ) ||
-        (ds_strcmp_cis(pars->lookup, "none") ==0 )) ||
-      ( num_infiles == 1 ) ) {
-    outhdr = hdr[0];
-  } else {
-    outhdr = mergeHdr( pars->lookup, hdr, num_infiles );
-  }
-
-
-  /* create output image  */
-  dmBlock *outBlock = NULL;
-  dmDescriptor *outDesc;
-  
-  if ( NULL == ( outBlock = dmImageCreate( pars->outfile, dmLONG,refImage->lAxes,2 ))){
-      err_msg("ERROR: Cannot create output image '%s'\n", pars->outfile );
-      return(-1);
-  }
-  outDesc = dmImageGetDataDescriptor( outBlock );
-  putHdr( outBlock, hdrDM_FILE, outhdr, ALL_STS, "resample_image");
-  put_param_hist_info( outBlock, "resample_image", NULL, 0 );
-  dmBlockCopyWCS( refImage->block, outBlock);
-  dmSetArray_d( outDesc, out_data, refImage->lAxes[0]*refImage->lAxes[1]);
-  dmImageClose( outBlock );
-  dmImageClose( refImage->block );
+  write_output( pars, refImage, out_data, num_infiles, hdr );
 
   return(0);
 
