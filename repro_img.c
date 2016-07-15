@@ -61,11 +61,10 @@ typedef struct {
   short verbose;
   int subpix;
   char lookup[DS_SZ_PATHNAME];
-  short do_norm;
-  char which_norm[30];
   char csys[30];
   CoordType ctype;
   long quantum;
+  long randseed;
 
 } Parameters;
 
@@ -442,19 +441,18 @@ Parameters *get_parameters(void)
   clgetstr( "matchfile", pars->reffile, DS_SZ_FNAME );
   clgetstr( "outfile", pars->outfile, DS_SZ_FNAME );
   pars->subpix = clgeti("resolution");
-  clgetstr("method", pars->which_norm, 29);
+  pars->quantum = clgeti("quantum");
   clgetstr("coord_sys", pars->csys, 29);
+  pars->randseed = clgeti("randseed");
   clgetstr( "lookupTab", pars->lookup, DS_SZ_FNAME);
   pars->clobber = clgetb( "clobber" );
   pars->verbose = clgeti( "verbose" );
-  pars->quantum = 4;
   if ( pars->verbose ) {  
     printf("resample_image - parameters\n");
     printf("%15s = %-s\n", "infile", pars->instack );
     printf("%15s = %-s\n", "matchfile", pars->reffile );
     printf("%15s = %-s\n", "outfile", pars->outfile );
     printf("%15s = %d\n", "resolution", pars->subpix );
-    printf("%15s = %-s\n", "method", pars->which_norm );
     printf("%15s = %-s\n", "coord_sys", pars->csys );
     printf("%15s = %-s\n", "lookupTab", pars->lookup );
     printf("%15s = %-s\n", "clobber", (pars->clobber ? "yes" : "no") );
@@ -468,7 +466,6 @@ Parameters *get_parameters(void)
     return(NULL);
    }
 
-  pars->do_norm =  ( strcmp( pars->which_norm, "sum" ) == 0 ) ? 0 : 1;
 
   switch ( pars->csys[0] ) {
     case 'l': pars->ctype = coordLOGICAL; break;
@@ -492,8 +489,12 @@ Parameters *get_parameters(void)
   }    
 
   /* Set random seed */
-  srand48( time(NULL));
 
+  if (( -1 == pars->randseed ) || (INDEFL == pars->randseed)) {
+        srand48( time(NULL));
+  } else {
+        srand48( pars->randseed );
+  }
 
   return(pars);
     
