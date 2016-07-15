@@ -441,7 +441,9 @@ Parameters *get_parameters(void)
     printf("%15s = %-s\n", "matchfile", pars->reffile );
     printf("%15s = %-s\n", "outfile", pars->outfile );
     printf("%15s = %d\n", "resolution", pars->subpix );
+    printf("%15s = %ld\n", "quantum", pars->quantum );
     printf("%15s = %-s\n", "coord_sys", pars->csys );
+    printf("%15s = %ld\n", "randseed", pars->randseed );
     printf("%15s = %-s\n", "lookupTab", pars->lookup );
     printf("%15s = %-s\n", "clobber", (pars->clobber ? "yes" : "no") );
     printf("%15s = %d\n", "verbose", pars->verbose );
@@ -449,7 +451,6 @@ Parameters *get_parameters(void)
 
   if ( ( strlen( pars->reffile) == 0 ) ||
        ( ds_strcmp_cis(pars->reffile, "none" ) == 0 ) ) {
-
     err_msg("ERROR: Must supply a valid match file\n");
     return(NULL);
    }
@@ -477,7 +478,6 @@ Parameters *get_parameters(void)
   }    
 
   /* Set random seed */
-
   if (( -1 == pars->randseed ) || (INDEFL == pars->randseed)) {
         srand48( time(NULL));
   } else {
@@ -616,7 +616,6 @@ long sample_distro( Buffer *buffer, Image *refImage)
     // Randomly sample the values in the buffer based on the
     // relative area fractions.
     // 
-
     double randval;
     long bb;
     randval = drand48();  // 0 to 1
@@ -757,7 +756,6 @@ int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Par
 }
 
 
-
 Header_Type *merge_headers( Parameters *pars, long num_infiles, Header_Type **hdr )
 {
 
@@ -770,8 +768,6 @@ Header_Type *merge_headers( Parameters *pars, long num_infiles, Header_Type **hd
 
   return( mergeHdr( pars->lookup, hdr, num_infiles ));
 }
-
-
 
 
 int write_output( Parameters *pars, Image *refImage, double *out_data, long num_infiles, Header_Type **hdr )
@@ -837,8 +833,9 @@ int resample_img(void)
 
   /* Now let's start on the input stack */
   Stack inStack;
-  long num_infiles;
   inStack = stk_build( pars->instack );
+
+  long num_infiles;
   num_infiles = stk_count(inStack);
 
   Header_Type **hdr;
