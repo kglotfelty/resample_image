@@ -86,8 +86,8 @@ int fill_polygon( long subpix, long xx, long yy, VertexList *refpixlist, WCS_Des
 int convert_coords( double *refpix, WCS_Descriptors *descs, double *imgpix, CoordType ctype);
 int check_coords( CoordType ctype, WCS_Descriptors descs );
 Image *load_image_file( dmBlock *inBlock );
-int make_polygon(int subpix, Polygon *poly);
-int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
+Polygon *make_polygon(int subpix);
+int find_bounding_box( Polygon *ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
 Parameters* get_parameters(void);
 Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBlock, double **out_data);
 Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Header_Type **hdr, WCS_Descriptors *descs  );
@@ -96,7 +96,8 @@ Buffer *make_buffer(void);
 void add_to_buffer( Buffer *buffer, long xx, long yy, double area );
 void cummulative( Buffer *buffer );
 long sample_distro( Buffer *buffer, Image *refImage);
-
+int is_invalid_val( double val );
+void distribute_counts( Parameters *pars, Buffer *buffer, Image *refImage, double val, double *out_data);
 
 // --------------------------
 
@@ -384,7 +385,7 @@ int check_coords( CoordType ctype, WCS_Descriptors descs )
 
 
 /* Alloc memory for a polygon struct */
-int make_polygon(int subpix, Polygon *poly)
+Polygon *make_polygon(int subpix)
 {
     VertexList *refpixlist = (VertexList*)calloc(1,sizeof(VertexList));   
     Polygon *ref_poly = (Polygon*)calloc(1,sizeof(Polygon));
@@ -393,26 +394,24 @@ int make_polygon(int subpix, Polygon *poly)
     refpixlist->vertex = (Vertex*)calloc(4*subpix*4, sizeof(Vertex)); // why 4*4? 4 sides
     refpixlist->num_vertices = 4*subpix;    
     ref_poly->contour = refpixlist;
-    *poly = *ref_poly;
-
-    return(0);
+    return(ref_poly);
 }
 
 
 /* find the min/max x,y values from the polygon */
-int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) 
+int find_bounding_box( Polygon *ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) 
 {
     long ii;
  
-    *xx_min = ref_poly.contour->vertex[0].x-0.5;
-    *yy_min = ref_poly.contour->vertex[0].y-0.5;
-    *xx_max = ref_poly.contour->vertex[0].x+0.5;
-    *yy_max = ref_poly.contour->vertex[0].y+0.5;
-    for(ii=ref_poly.contour->num_vertices;--ii;) {
-      *xx_min = MIN( *xx_min, (ref_poly.contour->vertex[ii].x-0.5));
-      *yy_min = MIN( *yy_min, (ref_poly.contour->vertex[ii].y-0.5));
-      *xx_max = MAX( *xx_max, (ref_poly.contour->vertex[ii].x+0.5));
-      *yy_max = MAX( *yy_max, (ref_poly.contour->vertex[ii].y+0.5));
+    *xx_min = ref_poly->contour->vertex[0].x-0.5;
+    *yy_min = ref_poly->contour->vertex[0].y-0.5;
+    *xx_max = ref_poly->contour->vertex[0].x+0.5;
+    *yy_max = ref_poly->contour->vertex[0].y+0.5;
+    for(ii=ref_poly->contour->num_vertices;--ii;) {
+      *xx_min = MIN( *xx_min, (ref_poly->contour->vertex[ii].x-0.5));
+      *yy_min = MIN( *yy_min, (ref_poly->contour->vertex[ii].y-0.5));
+      *xx_max = MAX( *xx_max, (ref_poly->contour->vertex[ii].x+0.5));
+      *yy_max = MAX( *yy_max, (ref_poly->contour->vertex[ii].y+0.5));
     }
 
     return(0);
@@ -648,6 +647,53 @@ long sample_distro( Buffer *buffer, Image *refImage)
 }
 
 
+int is_invalid_val( double val )
+{
+    static int show_less_than_zero_message = 1;
+
+    if ( 0 == val )  return(1); // skip it.
+    if ( ds_dNAN(val) ) return(1); // skip it.
+    if ( 0 > val ) {
+        if ( 1 == show_less_than_zero_message) {
+          err_msg("WARNING: Pixel values less than 0 are ignored");
+          show_less_than_zero_message=0;
+        }
+        return(1);
+    }
+
+    return(0);
+}
+
+
+void distribute_counts( Parameters *pars, Buffer *buffer, Image *refImage, double val, double *out_data)
+{
+    long vv;
+    long outpix;
+    long step = pars->quantum;
+    /*
+     * What's 'quantum' all about?  Let's say all the pixel
+     * values are in the 3000 range.  Well, we may not care to
+     * redistrbute all 3000 values individually.  Instead we may
+     * go ahead and package them up into bundles and reproject them
+     * "quantum" amount at a time to make things run faster.  
+     * 
+     * This progresses untill the last bundle where we force ourselfs
+     * to go 1-by-1.  [Could think of a 'gracefully' algorithm like
+     * divide step by 2, or go in sqrt() steps, but we'll leave that
+     * for later]
+     * 
+     */
+
+    for (vv=0;vv<val;vv=vv+step) {
+        if (vv+step>val) step=1;
+        outpix = sample_distro( buffer, refImage );
+        out_data[outpix] += step;            
+    } /* end for vv */
+
+
+}
+
+
 //---------------------------------------------------------
 /* Now onto the main routine */
 
@@ -660,8 +706,16 @@ int resample_img(void)
       return(-1); // error message internal
   }
 
+  /* These polys are used to store regions around each point */
+  Polygon *ref_poly, *clip_poly, *tmp_clip_poly;    
+  ref_poly = make_polygon(pars->subpix);
+  clip_poly = make_polygon(pars->subpix);
+  tmp_clip_poly = make_polygon(pars->subpix);
 
-  // ------------------------
+  /* These buffer values contain the fraction of areas the input pixel covers
+   * in the reference & output image */
+  Buffer *buffer;
+  buffer = make_buffer();
 
   Image *refImage;
   WCS_Descriptors descs;
@@ -670,12 +724,6 @@ int resample_img(void)
   if ( NULL == (refImage = load_ref_image( pars, &descs, &refBlock, &out_data))) {
       return(-1);
   }
-
-  Polygon ref_poly, clip_poly, tmp_clip_poly;    
-  make_polygon(pars->subpix, &ref_poly);
-  make_polygon(pars->subpix, &clip_poly);
-  make_polygon(pars->subpix, &tmp_clip_poly);
-
 
   /* Now let's start on the input stack */
   Stack inStack;
@@ -686,11 +734,6 @@ int resample_img(void)
   num_infiles = stk_count(inStack);
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
   stk_rewind(inStack);
-
-  /* These buffer values contain the fraction of areas the input pixel covers
-   * in the reference & output image */
-  Buffer *buffer;
-  buffer = make_buffer();
   
   char *infile;                  /* individual image in stack */
   while ( NULL != (infile = stk_read_next(inStack))) {
@@ -700,66 +743,44 @@ int resample_img(void)
     num_infiles--;
     if ( NULL == ( inImage = load_infile_image( pars, infile, &inBlock, hdr+num_infiles, &descs ))) {
         return(-1);
-    }
-    
+    }    
 
     /* For all pixels in the input image, we need to map them to the output, if any */
     long mm,nn;
-    for (nn=0;nn<inImage->lAxes[1];nn++) {
-      for (mm=0;mm<inImage->lAxes[0];mm++ ) {
+    for (nn=0;nn<inImage->lAxes[1];nn++) { // infile Y axis
+      for (mm=0;mm<inImage->lAxes[0];mm++ ) { // infile X axis
 
-        /* get image value; weight output pixel by it */
+        /* get image value; */
         double val;
         val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
-        if ( 0 == val )  continue; // skip it.
+        if (is_invalid_val(val)) continue;
 
-        /* This creates a polygon around output pixel xx,yy                */        
+        /* This creates a polygon around output pixel mm,nn                */        
         /* find the min and max pixels that need to intersect polygon with */
         long xx_min, xx_max, yy_min, yy_max;
-        fill_polygon( pars->subpix, mm, nn, ref_poly.contour, &descs, pars->ctype );
+        fill_polygon( pars->subpix, mm, nn, ref_poly->contour, &descs, pars->ctype );
         find_bounding_box( ref_poly, &xx_min, &xx_max, &yy_min, &yy_max );
 
         buffer->len = 0;
         long xx, yy;
-        for(yy=yy_min;yy<=yy_max;yy++) {
-          for (xx=xx_min;xx<=xx_max;xx++ ) {        
+        for(yy=yy_min;yy<=yy_max;yy++) { // refImage Y axis
+          for (xx=xx_min;xx<=xx_max;xx++ ) {  // refImage X axis
             double area;
 
             /* clip polgon against the pixel and compute area */
-            super_poly_clip( &ref_poly, &tmp_clip_poly, &clip_poly, xx, yy );
-            area = get_contour_area( &clip_poly );
+            super_poly_clip( ref_poly, tmp_clip_poly, clip_poly, xx, yy );
+            area = get_contour_area( clip_poly );
             if ( 0 == area ) continue;
             add_to_buffer( buffer, xx, yy, area );
 
           } /* end for xx (x-axis in ref image ) */
         } /* end for yy (y-axis in ref image) */
 
-        if (0 == buffer->len) continue;
+        if (0 == buffer->len) continue; // no coverage, skip it
+
         cummulative( buffer );
 
-
-        /*
-         * What's 'quantum' all about?  Let's say all the pixel
-         * values are in the 3000 range.  Well, we may not care to
-         * redistrbut all 3000 values individually.  Instead we may
-         * go ahead and package them up into bundles and reproject them
-         * "quantum" amount at a time to make things run faster.  
-         * 
-         * This progresses untill the last bundle where we force ourselfs
-         * to go 1-by-1.  [Could think of a 'gracefully' algorithm like
-         * divide step by 2, or go in sqrt() steps, but we'll leave that
-         * for later]
-         * 
-         */
-
-        long vv;
-        long outpix;
-        long step = pars->quantum;
-        for (vv=0;vv<val;vv=vv+step) {
-            if (vv+step>val) step=1;
-            outpix = sample_distro( buffer, refImage );
-            out_data[outpix] += step;            
-        } /* end for vv */
+        distribute_counts( pars, buffer, refImage, val, out_data );
 
       } /* end for mm (x-axis in input image) */
     } /* end for nn (y-axis in input image */
