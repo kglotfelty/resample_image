@@ -28,9 +28,6 @@
 #include <time.h>
 #include <stdlib.h>
 
-#include <cxcregion.h>
-
-
 #include "repro_img.h"
 
 /* 
@@ -39,15 +36,10 @@
    will hold the Physical and World WCS dmDescriptors for the X and Y axes;
    for both the inpt and output images.
 */
-
 typedef enum { coordLOGICAL, coordPHYSICAL, coordWORLD } CoordType;
 typedef struct { dmDescriptor *xaxis; dmDescriptor *yaxis; } Axes;
 typedef struct { Axes physical; Axes world; } WCS;
-typedef struct {
- WCS ref; 
- WCS image;
- } WCS_Descriptors;
-
+typedef struct { WCS ref; WCS image; } WCS_Descriptors;
 
 
 /* Hold info for an input image */
@@ -60,7 +52,7 @@ typedef struct {
   dmDescriptor *ydesc;  // Y coordinate descriptor
 } Image;
 
-
+/* Input parameters */
 typedef struct {
   char instack[DS_SZ_PATHNAME];  /* Input stack of images */
   char reffile[DS_SZ_PATHNAME];  /* match file */
@@ -73,41 +65,37 @@ typedef struct {
   char which_norm[30];
   char csys[30];
   CoordType ctype;
-    
+  long quantum;
+
 } Parameters;
 
 
+/* Buffer to hold areas */
+typedef struct {
+  long maxlen;
+  long len;
+  long *xx;
+  long *yy;
+  double *area;      
+} Buffer;
 
-/*
-  All these get_ routines are pilfered from other (too be released) DM tools 
-  that do some basic 2D image I/O.  Allows an arbitrary image data-type to be
-  read in and a mask created to indicate which pixels are good & bad.
-*/
-int find_chip_corners( long *min_ref_x, long *min_ref_y,
-                       long *max_ref_x, long *max_ref_y,
-                       long *reflen, long *inlen,
-                       WCS_Descriptors *desc );
+
+
 double get_contour_area( Polygon *clip_poly );
-
-int fill_polygon( long subpix,
-                  long xx, long yy,
-                  VertexList *refpixlist,
-                  WCS_Descriptors *descs,
-                  CoordType ctype);
-                  
-int convert_coords( double *refpix,
-                    WCS_Descriptors *descs,
-                    double *imgpix,
-                    CoordType ctype);
-
+int fill_polygon( long subpix, long xx, long yy, VertexList *refpixlist, WCS_Descriptors *descs, CoordType ctype);
+int convert_coords( double *refpix, WCS_Descriptors *descs, double *imgpix, CoordType ctype);
 int check_coords( CoordType ctype, WCS_Descriptors descs );
-                       
 Image *load_image_file( dmBlock *inBlock );
 int make_polygon(int subpix, Polygon *poly);
 int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
 Parameters* get_parameters(void);
 Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBlock, double **out_data);
 Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Header_Type **hdr, WCS_Descriptors *descs  );
+void free_image( Image *img );
+Buffer *make_buffer(void);
+void add_to_buffer( Buffer *buffer, long xx, long yy, double area );
+void cummulative( Buffer *buffer );
+long sample_distro( Buffer *buffer, Image *refImage);
 
 
 // --------------------------
@@ -116,6 +104,8 @@ Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Head
 
 /* Load image file.  This uses the routines defined in dmimgio.h */
 #include <dmimgio.h>
+#include <cxcregion.h>
+
 Image *load_image_file( dmBlock *inBlock )
 {
   dmDataType dt;
@@ -149,6 +139,27 @@ Image *load_image_file( dmBlock *inBlock )
 }
 
 
+void free_image( Image *img )
+{
+    if ( NULL == img ) return;
+    
+    if ( NULL != img->data ) { 
+        free( img->data );
+        img->data = NULL;
+    }
+    if ( NULL != img->mask ) {
+        free( img->mask );
+        img->mask = NULL;        
+    }
+    if ( NULL != img->lAxes ) {
+        free(img->lAxes);
+        img->lAxes = NULL;
+    }
+    return;
+}
+
+
+
 /* Routine to convert coordinates */
 
 /*
@@ -170,8 +181,7 @@ int convert_coords( double *refpix,
   double imgphys[2];
   switch (ctype) {
 
-       
-  case coordWORLD:
+  case coordWORLD: {
     if ( dmSUCCESS != dmCoordCalc_d( descs->ref.physical.xaxis, refpix, refphys ) ) retval=-1;
     if ( dmSUCCESS != dmCoordCalc_d( descs->ref.world.xaxis, refphys, refwrld )) retval=-1;
     if ( dmSUCCESS != dmCoordInvert_d( descs->image.world.xaxis, refwrld, imgphys )) retval=-1;
@@ -184,21 +194,23 @@ int convert_coords( double *refpix,
       if ( dmSUCCESS != dmCoordInvert_d( descs->image.physical.yaxis, imgphys+1, imgpix+1 )) retval=-1;
     }
     break;
+  }
 
-  case coordLOGICAL:
+  case coordLOGICAL: {
     imgpix[0] = refpix[0];
     imgpix[1] = refpix[1];
     break;
-    
-  case coordPHYSICAL:
+  }
+
+  case coordPHYSICAL: {
     if ( dmSUCCESS != dmCoordCalc_d( descs->ref.physical.xaxis, refpix, refphys )) retval=-1;
     if ( dmSUCCESS != dmCoordInvert_d( descs->image.physical.xaxis, refphys, imgpix )) retval=-1;
     if (  descs->ref.physical.yaxis ) {
       if ( dmSUCCESS != dmCoordCalc_d( descs->ref.physical.yaxis, refpix+1, refphys+1 )) retval=-1;
       if ( dmSUCCESS != dmCoordInvert_d( descs->image.physical.yaxis, refphys+1, imgpix+1 )) retval=-1;
     }
-
     break;
+  }
   } /* end switch */
 
 
@@ -254,10 +266,7 @@ int fill_polygon( long subpix,
   refpix[0] = xx + 0.5; /* = + 1 - 0.5 */
   refpix[1] = yy + 0.5; /* = + 1 - 0.5 */
   for (ii=0;ii<subpix;ii++) { /* order matter */
-    int stat;
-    stat = convert_coords( refpix, descs, imgpix,ctype);
-    if ( 0 != stat ) {
-    }
+    convert_coords( refpix, descs, imgpix,ctype);
     imgpix[0] -= 1;
     imgpix[1] -= 1;
     refpixlist->vertex[refidx].x=imgpix[0];
@@ -266,14 +275,10 @@ int fill_polygon( long subpix,
     refpix[1] += delta;
   }
 
-
   refpix[0] = xx + 0.5; /* = + 1 - 0.5 */
   refpix[1] = yy + 1.5; /* = + 1 - 0.5 */
   for (ii=0;ii<subpix;ii++) { /* order matter */
-    int stat;
-    stat = convert_coords( refpix, descs, imgpix,ctype);
-    if ( 0 != stat ) {
-    }
+    convert_coords( refpix, descs, imgpix,ctype);
     imgpix[0] -= 1;
     imgpix[1] -= 1;
     refpixlist->vertex[refidx].x=imgpix[0];
@@ -285,10 +290,7 @@ int fill_polygon( long subpix,
   refpix[0] = xx + 1.5; /* = + 1 - 0.5 */
   refpix[1] = yy + 1.5; /* = + 1 - 0.5 */
   for (ii=subpix;ii--;) { /* order matter */
-    int stat;
-    stat = convert_coords( refpix, descs, imgpix,ctype);
-    if ( 0 != stat ) {
-    }
+    convert_coords( refpix, descs, imgpix,ctype);
     imgpix[0] -= 1;
     imgpix[1] -= 1;
     refpixlist->vertex[refidx].x=imgpix[0];
@@ -297,14 +299,10 @@ int fill_polygon( long subpix,
     refpix[1] -= delta;
   }
   
-  
   refpix[0] = xx + 1.5; /* = + 1 + 0.5 */
   refpix[1] = yy + 0.5; /* = + 1 - 0.5 */
   for (ii=subpix;ii--;) { /* order matter */
-    int stat;
-    stat = convert_coords( refpix, descs, imgpix,ctype);
-    if ( 0 != stat ) {
-    }
+    convert_coords( refpix, descs, imgpix,ctype);
     imgpix[0] -= 1;
     imgpix[1] -= 1;
     refpixlist->vertex[refidx].x=imgpix[0];
@@ -313,7 +311,6 @@ int fill_polygon( long subpix,
     refpix[0] -= delta;
   }
   
-
   /* And now restore these back to their original order */  
   tmp_wcs = descs->ref;
   descs->ref = descs->image;
@@ -328,137 +325,33 @@ int fill_polygon( long subpix,
   0.5 * sum ( x_i*y_(i+1) - x_(i+1)*y(i) )
 
 */
-
 double get_contour_area( Polygon *clip_poly )
 {
   double area;
-  long kk=0;
+  double larea = 0;
+  long zz;
 
   area = 0;
-    double larea = 0;
-    long zz;
     
-    for (zz=0;zz<clip_poly->contour[kk].num_vertices-1;zz++) {
-      larea += (( clip_poly->contour[kk].vertex[zz].x *
-                  clip_poly->contour[kk].vertex[zz+1].y ) -
-                ( clip_poly->contour[kk].vertex[zz+1].x *
-                  clip_poly->contour[kk].vertex[zz].y  ));
-    }
+  for (zz=0;zz<clip_poly->contour->num_vertices-1;zz++) {
+      larea += (( clip_poly->contour->vertex[zz].x *
+                  clip_poly->contour->vertex[zz+1].y ) -
+                ( clip_poly->contour->vertex[zz+1].x *
+                  clip_poly->contour->vertex[zz].y  ));
+  }
     /* last point */
-    larea += (( clip_poly->contour[kk].vertex[zz].x *
-                clip_poly->contour[kk].vertex[0].y ) -
-              ( clip_poly->contour[kk].vertex[0].x *
-                clip_poly->contour[kk].vertex[zz].y ) );
+  larea += (( clip_poly->contour->vertex[zz].x *
+              clip_poly->contour->vertex[0].y ) -
+            ( clip_poly->contour->vertex[0].x *
+              clip_poly->contour->vertex[zz].y ) );
     
-    larea /= 2.0;
+  larea /= 2.0;
     
-      area += fabs(larea);
+  area += fabs(larea);
 
   return(area);
 }
 
-
-
-
-/*
-  Okay has nothing to do with 'chip''s 
-
-  This is a routine that does the inverse of the bulk of the rest of the
-  processing.  It maps the input image corners to the output image.
-
-  This gives use a potentially much smaller area to iterate over when working in 
-  the other direction (from output pixels to input pixels).
-
-
-*/
-
-int find_chip_corners( long *min_ref_x, long *min_ref_y,
-                       long *max_ref_x, long *max_ref_y,
-                       long *reflen, long *inlen,
-                       WCS_Descriptors *desc )
-{
-
-  double in_log_loc[2];
-  double ref_log_loc[2];
-  long vals_x[2], vals_y[2];
-
-
-    /* In this case we are going from the input image to the reference image instead
-       of how the other code goes from the ref. to the input.  So we just
-       swap the pointers.  Have to be sure to return to other order before
-       we get back to the main routine */
-
-    WCS tmp_wcs;
-    tmp_wcs = desc->ref;
-    desc->ref = desc->image;
-    desc->image = tmp_wcs;
-
-    /* Why + and - 2?  1 to get from image to c-array index'es and 1 to get
-       to the end of the pixel.  Could probably use -1 and +2.
-       Ranges get clipped at the end so extra padding doesn't
-       hurt
-    */    
-
-    long xlen, ylen, ilen, jlen;
-    xlen = reflen[0];
-    ylen = reflen[1];
-    ilen = inlen[0];
-    jlen = inlen[1];
-
-
-    vals_x[0] = -2; 
-    vals_y[0] = -2;
-    vals_x[1] = ilen+2;
-    vals_y[1] = jlen+2;
-    
-    *min_ref_x = xlen+1;
-    *min_ref_y = ylen+1;
-    *max_ref_x = 0;
-    *max_ref_y = 0;
-
-    long ii,jj;
-    for (ii=0;ii<2;ii++) {
-      for (jj=0;jj<2;jj++ ) {
-
-        in_log_loc[0] = vals_x[ii];
-        in_log_loc[1] = vals_y[jj];
-        
-        if ( 0 != convert_coords( in_log_loc, desc, ref_log_loc, coordWORLD ) ) {
-          tmp_wcs = desc->ref;
-          desc->ref = desc->image;
-          desc->image = tmp_wcs;
-          *min_ref_x = 0;
-          *min_ref_y = 0;
-          *max_ref_x = xlen;
-          *max_ref_y = ylen;
-          return(0);
-        }
-
-        *min_ref_x = MIN( *min_ref_x, (ref_log_loc[0]-1));
-        *min_ref_y = MIN( *min_ref_y, (ref_log_loc[1]-1));
-        *max_ref_x = MAX( *max_ref_x, (ref_log_loc[0]-1));
-        *max_ref_y = MAX( *max_ref_y, (ref_log_loc[1]-1));
-        
-      } /* end for jj */
-    } /* end for ii */
-    
-    if ( *min_ref_x < 0 ) *min_ref_x = 0;
-    if ( *min_ref_y < 0 ) *min_ref_y = 0;
-    if ( *max_ref_x > xlen ) *max_ref_x = xlen;
-    if ( *max_ref_y > ylen ) *max_ref_y = ylen;
-    
-    if ( *max_ref_x < 0 ) *max_ref_x = 0; /* Well, not on image! */
-    if ( *max_ref_y < 0 ) *max_ref_y = 0; /* Well, not on image! */
-    if ( *min_ref_x > xlen ) *min_ref_x = xlen;
-    if ( *min_ref_y > ylen ) *min_ref_y = ylen;
-  
-    tmp_wcs = desc->ref;
-    desc->ref = desc->image;
-    desc->image = tmp_wcs;
-
-    return(0);
-
-}
 
 
 int check_coords( CoordType ctype, WCS_Descriptors descs )
@@ -490,46 +383,50 @@ int check_coords( CoordType ctype, WCS_Descriptors descs )
 }
 
 
+/* Alloc memory for a polygon struct */
 int make_polygon(int subpix, Polygon *poly)
 {
     VertexList *refpixlist = (VertexList*)calloc(1,sizeof(VertexList));   
     Polygon *ref_poly = (Polygon*)calloc(1,sizeof(Polygon));
         
 
-    refpixlist->vertex    = (Vertex*)calloc(4*subpix*4, sizeof(Vertex)); // why 4*4, 4 sides
+    refpixlist->vertex = (Vertex*)calloc(4*subpix*4, sizeof(Vertex)); // why 4*4? 4 sides
     refpixlist->num_vertices = 4*subpix;    
-    ref_poly->contour      = refpixlist;
+    ref_poly->contour = refpixlist;
     *poly = *ref_poly;
 
     return(0);
 }
 
 
-
+/* find the min/max x,y values from the polygon */
 int find_bounding_box( Polygon ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) 
 {
     long ii;
  
-    *xx_min = ref_poly.contour[0].vertex[0].x-0.5;
-    *yy_min = ref_poly.contour[0].vertex[0].y-0.5;
-    *xx_max = ref_poly.contour[0].vertex[0].x+0.5;
-    *yy_max = ref_poly.contour[0].vertex[0].y+0.5;
-    for(ii=ref_poly.contour[0].num_vertices;--ii;) {
-      *xx_min = MIN( *xx_min, (ref_poly.contour[0].vertex[ii].x-0.5));
-      *yy_min = MIN( *yy_min, (ref_poly.contour[0].vertex[ii].y-0.5));
-      *xx_max = MAX( *xx_max, (ref_poly.contour[0].vertex[ii].x+0.5));
-      *yy_max = MAX( *yy_max, (ref_poly.contour[0].vertex[ii].y+0.5));
+    *xx_min = ref_poly.contour->vertex[0].x-0.5;
+    *yy_min = ref_poly.contour->vertex[0].y-0.5;
+    *xx_max = ref_poly.contour->vertex[0].x+0.5;
+    *yy_max = ref_poly.contour->vertex[0].y+0.5;
+    for(ii=ref_poly.contour->num_vertices;--ii;) {
+      *xx_min = MIN( *xx_min, (ref_poly.contour->vertex[ii].x-0.5));
+      *yy_min = MIN( *yy_min, (ref_poly.contour->vertex[ii].y-0.5));
+      *xx_max = MAX( *xx_max, (ref_poly.contour->vertex[ii].x+0.5));
+      *yy_max = MAX( *yy_max, (ref_poly.contour->vertex[ii].y+0.5));
     }
 
     return(0);
 }
 
+/* Get parameters from .par file 
+ * 
+ * Also does some elementary checks and clobbering
+ * */
 
 Parameters *get_parameters(void)
 {
   Parameters *pars = (Parameters*)calloc(1,sizeof(Parameters));
     
-
   /* Get the parameters */
   clgetstr( "infile", pars->instack, DS_SZ_FNAME );
   clgetstr( "matchfile", pars->reffile, DS_SZ_FNAME );
@@ -540,7 +437,7 @@ Parameters *get_parameters(void)
   clgetstr( "lookupTab", pars->lookup, DS_SZ_FNAME);
   pars->clobber = clgetb( "clobber" );
   pars->verbose = clgeti( "verbose" );
-  
+  pars->quantum = 4;
   if ( pars->verbose ) {  
     printf("resample_image - parameters\n");
     printf("%15s = %-s\n", "infile", pars->instack );
@@ -584,7 +481,7 @@ Parameters *get_parameters(void)
     return(NULL);
   }    
 
-
+  /* Set random seed */
   srand48( time(NULL));
 
 
@@ -593,7 +490,7 @@ Parameters *get_parameters(void)
 }
 
 
-
+/* Load the reference image.  Really only care about the WCS here */
 Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBlock, double **out_data)
 {
   Image *refImage;
@@ -608,7 +505,6 @@ Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBl
       return(NULL);      
   }
 
-
   descs->ref.physical.xaxis = refImage->xdesc;
   descs->ref.physical.yaxis = refImage->ydesc;
   descs->ref.world.xaxis = dmDescriptorGetCoord( refImage->xdesc );
@@ -617,11 +513,11 @@ Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs, dmBlock **refBl
   /* Alloc outptu data array */
   *out_data = ( double*)calloc( refImage->lAxes[0]*refImage->lAxes[1], sizeof(double));
 
-
   return(refImage);
 }
 
 
+/* Load the infile image. */
 Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Header_Type **hdr, WCS_Descriptors *descs  )
 {
     Image *inImage;
@@ -640,6 +536,14 @@ Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Head
       err_msg("ERROR: Cannot open image '%s'\n", infile );
       return(NULL);        
     }
+
+    /* The infile must be integer ! */
+    if (( dmFLOAT == inImage->dt ) ||
+        ( dmDOUBLE == inImage->dt ) ) {
+        err_msg("ERROR: The input image must be an integer datatype.");
+        return(NULL);
+    }
+    
     
     *hdr = getHdr( *inBlock, hdrDM_FILE );
 
@@ -655,9 +559,96 @@ Image *load_infile_image(Parameters *pars, char *infile, dmBlock **inBlock, Head
     return(inImage);
 }
 
+/*
+ *  The way resample image works is that it determines the amount of
+ * area each input covers in each of the output pixels. So for example
+ * if the input image is binned by 4 and the reference/output image is 
+ * binned by 1, then 1 pixel in the input will map to 16 pixels in the 
+ * output.
+ * 
+ * The area is then used to randomly sample the **counts** (ie 'val')
+ * from the input image, sending some fraction of the counts into
+ * each of the output pixels based on the relative area coverage.
+ * 
+ * This preserves the integer nature of the data (input must be int
+ * datatype).  Which means that the output can be used with
+ * for wavdetect or any other tool expecting Possion stats.
+ * 
+ * The buffer stuff then is keeping track of which pixels 
+ * in the output map to the "current" input pixel and with what
+ * area-fraction.
+ */
+ 
+Buffer *make_buffer(void)
+{
+    // Allocate the buffer.  It will grow if needed 
+
+    Buffer *buffer = (Buffer*)calloc(1,sizeof(Buffer));
+    buffer->maxlen = 100;
+    buffer->len = 0;
+    buffer->xx = (long*)calloc(buffer->maxlen, sizeof(long));
+    buffer->yy = (long*)calloc(buffer->maxlen, sizeof(long));
+    buffer->area = (double*)calloc(buffer->maxlen, sizeof(double));
+    
+    return(buffer);
+    
+}
+
+void add_to_buffer( Buffer *buffer, long xx, long yy, double area )
+{
+    // Add an x, y, area tuple to the buffer.  Increase
+    // buffer size if needed.
+
+    buffer->xx[buffer->len] = xx;
+    buffer->yy[buffer->len] = yy;
+    buffer->area[buffer->len] = area;
+
+    buffer->len += 1;
+    if ( buffer->len >= buffer->maxlen ) {
+        buffer->maxlen *= 2;
+        buffer->xx = (long*)realloc( buffer->xx, sizeof(long)*buffer->maxlen);
+        buffer->yy = (long*)realloc( buffer->yy, sizeof(long)*buffer->maxlen);
+        buffer->area = (double*)realloc( buffer->area, sizeof(double)*buffer->maxlen);
+    }
+    
+}
 
 
+void cummulative( Buffer *buffer )
+{
+    // Turn the area array into a fractional (0 to 1), cummulative
+    // probability distribution
 
+    long bb;
+    for (bb=1;bb<buffer->len; bb++) 
+        buffer->area[bb] += buffer->area[bb-1];
+    for (bb=0;bb<buffer->len;bb++) 
+        buffer->area[bb] /= buffer->area[buffer->len-1];
+
+}
+
+long sample_distro( Buffer *buffer, Image *refImage)
+{
+    // Randomly sample the values in the buffer based on the
+    // relative area fractions.
+    // 
+
+    double randval;
+    long bb;
+    randval = drand48();  // 0 to 1
+    for (bb=0;bb<buffer->len;bb++) {
+        // I'm using '<=' here so I don't have to special case "0" or "1"
+        if (randval <= buffer->area[bb]) break;
+    }
+        
+    long outpix;
+    outpix = buffer->xx[bb] + buffer->yy[bb]*refImage->lAxes[0];
+    return(outpix);
+
+}
+
+
+//---------------------------------------------------------
 /* Now onto the main routine */
 
 int resample_img(void)
@@ -696,14 +687,11 @@ int resample_img(void)
   hdr = (Header_Type**) calloc( num_infiles, sizeof(Header_Type*));
   stk_rewind(inStack);
 
-  long max_buffer = 1000;
-  long *xx_buffer = (long*)calloc(max_buffer, sizeof(long));
-  long *yy_buffer = (long*)calloc(max_buffer, sizeof(long));
-  double *area_buff = (double*)calloc(max_buffer,sizeof(double));
+  /* These buffer values contain the fraction of areas the input pixel covers
+   * in the reference & output image */
+  Buffer *buffer;
+  buffer = make_buffer();
   
-
-
-    
   char *infile;                  /* individual image in stack */
   while ( NULL != (infile = stk_read_next(inStack))) {
 
@@ -714,13 +702,6 @@ int resample_img(void)
         return(-1);
     }
     
-
-#if 0
-    /* Find bounds of output image that are covered by the input */
-    long min_ref_x,min_ref_y,max_ref_x,max_ref_y;
-    find_chip_corners( &min_ref_x, &min_ref_y, &max_ref_x, &max_ref_y, 
-                 refImage->lAxes, inImage->lAxes, &descs );
-#endif
 
     /* For all pixels in the input image, we need to map them to the output, if any */
     long mm,nn;
@@ -738,9 +719,7 @@ int resample_img(void)
         fill_polygon( pars->subpix, mm, nn, ref_poly.contour, &descs, pars->ctype );
         find_bounding_box( ref_poly, &xx_min, &xx_max, &yy_min, &yy_max );
 
-        long buffer_len;
-        buffer_len = 0;
-
+        buffer->len = 0;
         long xx, yy;
         for(yy=yy_min;yy<=yy_max;yy++) {
           for (xx=xx_min;xx<=xx_max;xx++ ) {        
@@ -750,45 +729,36 @@ int resample_img(void)
             super_poly_clip( &ref_poly, &tmp_clip_poly, &clip_poly, xx, yy );
             area = get_contour_area( &clip_poly );
             if ( 0 == area ) continue;
-
-            xx_buffer[buffer_len] = xx;
-            yy_buffer[buffer_len] = yy;
-            area_buff[buffer_len] = area;
-            buffer_len+=1;
-            if ( buffer_len >= max_buffer ) {
-                max_buffer = max_buffer*2;
-                xx_buffer = (long*)realloc( xx_buffer, sizeof(long)*max_buffer);
-                yy_buffer = (long*)realloc( yy_buffer, sizeof(long)*max_buffer);
-                area_buff = (double*)realloc( area_buff, sizeof(double)*max_buffer);                
-            }
+            add_to_buffer( buffer, xx, yy, area );
 
           } /* end for xx (x-axis in ref image ) */
         } /* end for yy (y-axis in ref image) */
 
-        if (0 == buffer_len) continue;
+        if (0 == buffer->len) continue;
+        cummulative( buffer );
 
-        long bb;
-        for (bb=1;bb<buffer_len;bb++) {
-            area_buff[bb] += area_buff[bb-1];
-        }
-        for (bb=0;bb<buffer_len;bb++) {
-            area_buff[bb] /= area_buff[buffer_len-1];
-        }
+
+        /*
+         * What's 'quantum' all about?  Let's say all the pixel
+         * values are in the 3000 range.  Well, we may not care to
+         * redistrbut all 3000 values individually.  Instead we may
+         * go ahead and package them up into bundles and reproject them
+         * "quantum" amount at a time to make things run faster.  
+         * 
+         * This progresses untill the last bundle where we force ourselfs
+         * to go 1-by-1.  [Could think of a 'gracefully' algorithm like
+         * divide step by 2, or go in sqrt() steps, but we'll leave that
+         * for later]
+         * 
+         */
 
         long vv;
-        for (vv=0;vv<val;vv++) {
-            double randval;
-            randval = drand48();
-            for (bb=0;bb<buffer_len;bb++) {
-                if ( randval <= area_buff[bb]) {
-                    break;
-                }
-            }
-
-            long outpix;
-            outpix = xx_buffer[bb] + (yy_buffer[bb])*refImage->lAxes[0];
-            out_data[outpix] += 1;
-            
+        long outpix;
+        long step = pars->quantum;
+        for (vv=0;vv<val;vv=vv+step) {
+            if (vv+step>val) step=1;
+            outpix = sample_distro( buffer, refImage );
+            out_data[outpix] += step;            
         } /* end for vv */
 
       } /* end for mm (x-axis in input image) */
@@ -796,7 +766,7 @@ int resample_img(void)
     
 
     if ( pars->verbose > 2 )  printf("Processing %g%% complete        \n", 100.0 );
-
+    free_image( inImage );
     dmImageClose( inBlock ); // Need to leave open to do coord x-forms
 
   }  /* end while infile loop over stack */
@@ -814,12 +784,11 @@ int resample_img(void)
   }
 
 
-
   /* create output image  */
   dmBlock *outBlock = NULL;
   dmDescriptor *outDesc;
   
-  if ( NULL == ( outBlock = dmImageCreate( pars->outfile, dmDOUBLE,refImage->lAxes,2 ))){
+  if ( NULL == ( outBlock = dmImageCreate( pars->outfile, dmLONG,refImage->lAxes,2 ))){
       err_msg("ERROR: Cannot create output image '%s'\n", pars->outfile );
       return(-1);
   }

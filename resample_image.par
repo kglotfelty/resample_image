@@ -1,6 +1,6 @@
 infile,f,a,"b.img",,,"Input image file name"
 matchfile,f,a,"a.img",,,"Reference image"
-outfile,f,a,"out.img",,,"Output file name"
+outfile,f,a,"junk",,,"Output file name"
 resolution,i,h,1,0,,"Number of point per side to evaluate"
 method,s,h,"sum",sum|average,,"Average value"
 coord_sys,s,h,"world",world|logical|physical,,"Coordinate system to match images in"
