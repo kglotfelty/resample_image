@@ -93,7 +93,7 @@ int convert_coords( double *refpix, WCS_Descriptors *descs, double *imgpix, Coor
 int check_coords( CoordType ctype, WCS_Descriptors descs );
 Image *load_image_file( dmBlock *inBlock );
 Polygon *make_polygon(int subpix);
-int find_bounding_box( Polygon *ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
+int find_bounding_box( Polygon *ref_poly, long *lAxes, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
 Parameters* get_parameters(void);
 Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs);
 Image *load_infile_image(Parameters *pars, char *infile, Header_Type **hdr, WCS_Descriptors *descs  );
@@ -396,8 +396,8 @@ Polygon *make_polygon(int subpix)
 }
 
 
-/* find the min/max x,y values from the polygon */
-int find_bounding_box( Polygon *ref_poly, long *xx_min, long *xx_max, long *yy_min, long*yy_max) 
+/* find the min/max x,y values from the polygon, must be w/i lAxes ranges */
+int find_bounding_box( Polygon *ref_poly, long *lAxes, long *xx_min, long *xx_max, long *yy_min, long*yy_max) 
 {
     long ii;
  
@@ -411,6 +411,11 @@ int find_bounding_box( Polygon *ref_poly, long *xx_min, long *xx_max, long *yy_m
       *xx_max = MAX( *xx_max, (ref_poly->contour->vertex[ii].x+0.5));
       *yy_max = MAX( *yy_max, (ref_poly->contour->vertex[ii].y+0.5));
     }
+
+    *xx_min = MIN( MAX( *xx_min, 0), lAxes[0]-1);
+    *xx_max = MIN( MAX( *xx_max, 0), lAxes[0]-1);
+    *yy_min = MIN( MAX( *yy_min, 0), lAxes[1]-1);
+    *yy_max = MIN( MAX( *yy_max, 0), lAxes[1]-1);
 
     return(0);
 }
@@ -727,7 +732,10 @@ int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Par
         /* find the min and max pixels that need to intersect polygon with */
         long xx_min, xx_max, yy_min, yy_max;
         fill_polygon( pars->subpix, mm, nn, polys->ref->contour, descs, pars->ctype );
-        find_bounding_box( polys->ref, &xx_min, &xx_max, &yy_min, &yy_max );
+        find_bounding_box( polys->ref, refImage->lAxes, &xx_min, &xx_max, &yy_min, &yy_max );
+
+
+
 
         buffer->len = 0;
         long xx, yy;
