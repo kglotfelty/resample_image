@@ -86,7 +86,7 @@ typedef struct {
 
 
 
-double get_contour_area( Polygon *clip_poly );
+double get_contour_area( Polygons *poly, long xx, long yy );
 int fill_polygon( long subpix, long xx, long yy, VertexList *refpixlist, WCS_Descriptors *descs, CoordType ctype);
 int convert_coords( double *refpix, WCS_Descriptors *descs, double *imgpix, CoordType ctype);
 int check_coords( CoordType ctype, WCS_Descriptors descs );
@@ -336,25 +336,28 @@ int fill_polygon( long subpix,
   0.5 * sum ( x_i*y_(i+1) - x_(i+1)*y(i) )
 
 */
-double get_contour_area( Polygon *clip_poly )
+double get_contour_area( Polygons *polys, long xx, long yy)
 {
   double area;
   double larea = 0;
   long zz;
 
-  area = 0;
-    
-  for (zz=0;zz<clip_poly->contour->num_vertices-1;zz++) {
-      larea += (( clip_poly->contour->vertex[zz].x *
-                  clip_poly->contour->vertex[zz+1].y ) -
-                ( clip_poly->contour->vertex[zz+1].x *
-                  clip_poly->contour->vertex[zz].y  ));
+  /* Create a polygon that is clipped by the current pixel */
+  super_poly_clip( polys->ref, polys->tmp, polys->clip, xx, yy );
+
+  /* Compute the area of that polygon */
+  area = 0;    
+  for (zz=0;zz<polys->clip->contour->num_vertices-1;zz++) {
+      larea += (( polys->clip->contour->vertex[zz].x *
+                  polys->clip->contour->vertex[zz+1].y ) -
+                ( polys->clip->contour->vertex[zz+1].x *
+                  polys->clip->contour->vertex[zz].y  ));
   }
     /* last point */
-  larea += (( clip_poly->contour->vertex[zz].x *
-              clip_poly->contour->vertex[0].y ) -
-            ( clip_poly->contour->vertex[0].x *
-              clip_poly->contour->vertex[zz].y ) );
+  larea += (( polys->clip->contour->vertex[zz].x *
+              polys->clip->contour->vertex[0].y ) -
+            ( polys->clip->contour->vertex[0].x *
+              polys->clip->contour->vertex[zz].y ) );
     
   larea /= 2.0;
     
@@ -643,10 +646,10 @@ long sample_distro( Buffer *buffer, Image *refImage)
 
 }
 
-
+/* Check for 0 or NULL pixels */
 int is_invalid_val( double val )
 {
-    static int show_less_than_zero_message = 1;
+    static int show_less_than_zero_message = 1; // Only show message once
 
     if ( 0 == val )  return(1); // skip it.
     if ( ds_dNAN(val) ) return(1); // skip it.
@@ -690,6 +693,7 @@ void distribute_counts( Parameters *pars, Buffer *buffer, Image *refImage, doubl
 
 }
 
+/* Allocate polygon structs */
 Polygons *make_polys( int subpix )
 {
     Polygons *polys = (Polygons*)calloc(1,sizeof(Polygons));
@@ -714,6 +718,12 @@ Polygons *make_polys( int subpix )
  * This preserves the integer nature of the data (input must be int
  * datatype).  Which means that the output can be used with
  * for wavdetect or any other tool expecting Possion stats.
+ * 
+ * The assumption is that the counts are evenly distributed within
+ * the input pixel.  We don't know any better so this is the best,
+ * unbiased assumption we can make.  We could define some kind of
+ * weighting from the center kind of thing but that's messy.
+ * 
  */
 int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Parameters *pars, Buffer *buffer, 
     Polygons *polys, double *out_data )
@@ -740,10 +750,8 @@ int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Par
         for(yy=yy_min;yy<=yy_max;yy++) { // refImage Y axis
           for (xx=xx_min;xx<=xx_max;xx++ ) {  // refImage X axis
             double area;
-
             /* clip polgon against the pixel and compute area */
-            super_poly_clip( polys->ref, polys->tmp, polys->clip, xx, yy );
-            area = get_contour_area( polys->clip );
+            area = get_contour_area( polys, xx, yy );
             if ( 0 == area ) continue;
             add_to_buffer( buffer, xx, yy, area );
 
@@ -816,6 +824,7 @@ int resample_img(void)
     Image *inImage;
     dmBlock *inBlock;    
     num_infiles--;
+
     if ( NULL == ( inImage = load_infile_image( pars, infile, &inBlock, hdr+num_infiles, descs ))) {
         return(-1);
     }    
@@ -830,8 +839,8 @@ int resample_img(void)
 
 
   /* merge headers */
-  num_infiles = stk_count( inStack );
   Header_Type *outhdr;
+  num_infiles = stk_count( inStack );
   if (( (strlen( pars->lookup ) == 0 ) ||
         (ds_strcmp_cis(pars->lookup, "none") ==0 )) ||
       ( num_infiles == 1 ) ) {
@@ -854,7 +863,7 @@ int resample_img(void)
   put_param_hist_info( outBlock, "resample_image", NULL, 0 );
   dmBlockCopyWCS( refBlock, outBlock);
   dmSetArray_d( outDesc, out_data, refImage->lAxes[0]*refImage->lAxes[1]);
-  dmImageClose(outBlock );
+  dmImageClose( outBlock );
   dmImageClose( refBlock );
 
   return(0);
