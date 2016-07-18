@@ -28,7 +28,7 @@
 #include <time.h>
 #include <stdlib.h>
 
-#include "repro_img.h"
+#include "resample_img.h"
 
 /* 
    These typedef's define a) an enumerated type to be used to know which trans

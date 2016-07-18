@@ -13,7 +13,7 @@ PAR_FILES         = resample_image.par
 INC_FILES         =
 XML_FILES         = 
 
-SRCS	= repro_img.c t_repro_img.c poly_clip.c
+SRCS	= resample_img.c t_resample_img.c poly_clip.c
 
 OBJS	= $(SRCS:.c=.o)
 
@@ -44,5 +44,5 @@ kjg: $(EXEC)
 
 announce1:
 	@echo "   /----------------------------------------------------------\ "
-	@echo "   |             Building repro_image DM host tool           | "
+	@echo "   |             Building resample_image DM host tool         | "
 	@echo "   \----------------------------------------------------------/ "

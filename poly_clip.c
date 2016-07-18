@@ -19,7 +19,7 @@
 /*                                                                          */
 
 
-#include <repro_img.h>
+#include <resample_img.h>
 #include <stdlib.h>
      
 

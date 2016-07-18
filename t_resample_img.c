@@ -34,7 +34,7 @@
 H***************************************************************** */
 
 #include "dslib.h"
-#include "repro_img.h"
+#include "resample_img.h"
 
 int main(int argc, char** argv)
 {
