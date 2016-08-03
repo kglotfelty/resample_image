@@ -61,10 +61,10 @@ int poly_clip( Polygon *pp, long qx, long qy,
   ury = qy +0.5;
 
   
-  nout = &ret->contour[0].num_vertices;
+  nout = &ret->contour->num_vertices;
   (*nout) = 0;
   
-  for (ii=0;ii<(pp->contour[0].num_vertices);ii++) {
+  for (ii=0;ii<(pp->contour->num_vertices);ii++) {
     short p1, p2;
     short jj;
     
@@ -72,11 +72,11 @@ int poly_clip( Polygon *pp, long qx, long qy,
 
     p1=0; p2=0;
     
-    jj=(ii+1)%pp->contour[0].num_vertices; /* got back to 1st point at ii=num_vertices */
-    px_ii = pp->contour[0].vertex[ii].x;
-    py_ii = pp->contour[0].vertex[ii].y;
-    px_jj = pp->contour[0].vertex[jj].x;
-    py_jj = pp->contour[0].vertex[jj].y;
+    jj=(ii+1)%pp->contour->num_vertices; /* got back to 1st point at ii=num_vertices */
+    px_ii = pp->contour->vertex[ii].x;
+    py_ii = pp->contour->vertex[ii].y;
+    px_jj = pp->contour->vertex[jj].x;
+    py_jj = pp->contour->vertex[jj].y;
     
 
     /* These are testing to see if  
@@ -136,8 +136,8 @@ int poly_clip( Polygon *pp, long qx, long qy,
     
     
     if ( (1==p1) && (1==p2) ) { /* both points inside, add the jj-th one */
-      ret->contour[0].vertex[(*nout)].x = px_jj;
-      ret->contour[0].vertex[(*nout)].y = py_jj;
+      ret->contour->vertex[(*nout)].x = px_jj;
+      ret->contour->vertex[(*nout)].y = py_jj;
       (*nout)++;
     } else if (( (1==p1) && (0==p2) ) || ( (0==p1) && (1==p2))){  /* one or the other point inside */
       /* check each side, see which it intersects */
@@ -167,12 +167,12 @@ int poly_clip( Polygon *pp, long qx, long qy,
         rr /= dom;
         ss /= dom;
         
-        ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax); /* better be llx! */
-        ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay);
+        ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax); /* better be llx! */
+        ret->contour->vertex[(*nout)].y = ay+rr*(by-ay);
         (*nout)++;
         if (0==p1) {
-          ret->contour[0].vertex[(*nout)].x = px_jj;
-          ret->contour[0].vertex[(*nout)].y = py_jj;
+          ret->contour->vertex[(*nout)].x = px_jj;
+          ret->contour->vertex[(*nout)].y = py_jj;
           (*nout)++;
         }
         continue; /* next ii */
@@ -190,12 +190,12 @@ int poly_clip( Polygon *pp, long qx, long qy,
         rr /= dom;
         ss /= dom;
         
-        ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax); /* better be urx! */
-        ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay);
+        ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax); /* better be urx! */
+        ret->contour->vertex[(*nout)].y = ay+rr*(by-ay);
         (*nout)++;
         if (0==p1) {
-          ret->contour[0].vertex[(*nout)].x = px_jj;
-          ret->contour[0].vertex[(*nout)].y = py_jj;
+          ret->contour->vertex[(*nout)].x = px_jj;
+          ret->contour->vertex[(*nout)].y = py_jj;
           (*nout)++;
         }
         continue; /* next ii */
@@ -212,12 +212,12 @@ int poly_clip( Polygon *pp, long qx, long qy,
         rr /= dom;
         ss /= dom;
         
-        ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax);
-        ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay); /* better be lly */
+        ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax);
+        ret->contour->vertex[(*nout)].y = ay+rr*(by-ay); /* better be lly */
         (*nout)++;
         if (0==p1) {
-          ret->contour[0].vertex[(*nout)].x = px_jj;
-          ret->contour[0].vertex[(*nout)].y = py_jj;
+          ret->contour->vertex[(*nout)].x = px_jj;
+          ret->contour->vertex[(*nout)].y = py_jj;
           (*nout)++;
         }
         continue; /* next ii */
@@ -234,12 +234,12 @@ int poly_clip( Polygon *pp, long qx, long qy,
         rr /= dom;
         ss /= dom;
         
-        ret->contour[0].vertex[(*nout)].x = ax+rr*(bx-ax);
-        ret->contour[0].vertex[(*nout)].y = ay+rr*(by-ay); /* bette be ury */
+        ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax);
+        ret->contour->vertex[(*nout)].y = ay+rr*(by-ay); /* bette be ury */
         (*nout)++;
         if (0==p1) {
-          ret->contour[0].vertex[(*nout)].x = px_jj;
-          ret->contour[0].vertex[(*nout)].y = py_jj;
+          ret->contour->vertex[(*nout)].x = px_jj;
+          ret->contour->vertex[(*nout)].y = py_jj;
           (*nout)++;
         }
         continue; /* next ii */
