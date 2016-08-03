@@ -20,7 +20,6 @@ typedef struct                      /* Polygon set structure             */
 } Polygon;
 
 
-typedef enum { LEFT=1, RIGHT=2, BOTTOM=3, TOP=4 } EdgeType;
 
 
 

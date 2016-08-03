@@ -1,5 +1,5 @@
 /*                                                                
-**  Copyright (C) 2005,2007  Smithsonian Astrophysical Observatory 
+**  Copyright (C) 2005,2007, 2016  Smithsonian Astrophysical Observatory 
 */                                                                
 
 /*                                                                          */
@@ -42,11 +42,14 @@
 
 */
 
-int poly_clip( Polygon *pp, long qx, long qy,
-               Polygon *ret, short edge);
+typedef enum { LEFT=1, RIGHT=2, BOTTOM=3, TOP=4 } EdgeType;
+
+
+static int poly_clip( Polygon *pp, long qx, long qy,
+               Polygon *ret, EdgeType edge);
 
 int poly_clip( Polygon *pp, long qx, long qy,
-               Polygon *ret, short edge)
+               Polygon *ret, EdgeType edge)
      
 {
   
@@ -54,7 +57,21 @@ int poly_clip( Polygon *pp, long qx, long qy,
   long ii;
   int *nout;
 
+    /* p1 and p2 describe whether the point is relative to the edge
+     * being EdgeType edge being checked (for example , to the left of the left-most
+     * edge "MISSES" where as being to the right of the left-most edge "CROSSES".
+     * */
+     
 
+  enum { MISSES, CROSSES } p1, p2;
+
+  /* qx and qy are the center of the square pixel being checked 
+   * 
+   * This could be generalized to be a rectangle by passing in 
+   * separate lengths for X and Y (or by passing in llx,lly 
+   * and urx,ury directly)
+   * 
+   * */
   llx = qx -0.5;
   lly = qy -0.5;
   urx = qx +0.5;
@@ -65,147 +82,91 @@ int poly_clip( Polygon *pp, long qx, long qy,
   (*nout) = 0;
   
   for (ii=0;ii<(pp->contour->num_vertices);ii++) {
-    short p1, p2;
-    short jj;
-    
-    double px_ii, px_jj, py_ii, py_jj;
+    short jj;    
+    double ax, bx, cx, dx;
+    double ay, by, cy, dy;
 
-    p1=0; p2=0;
-    
+    p1=MISSES; p2=MISSES;
+    cx =0 ; cy = 0; dx = 0; dy = 0;
     jj=(ii+1)%pp->contour->num_vertices; /* got back to 1st point at ii=num_vertices */
-    px_ii = pp->contour->vertex[ii].x;
-    py_ii = pp->contour->vertex[ii].y;
-    px_jj = pp->contour->vertex[jj].x;
-    py_jj = pp->contour->vertex[jj].y;
+    ax = pp->contour->vertex[ii].x;
+    ay = pp->contour->vertex[ii].y;
+    bx = pp->contour->vertex[jj].x;
+    by = pp->contour->vertex[jj].y;
     
 
     /* These are testing to see if  
-       p1 (current point) and p2 (next point) are inside or outside.
+       p1 (current point) and p2 (next point) are CROSSES or MISSES.
+       
+       We go ahead and save the coordinates of the pixel edge as well in
+       the cx,cy & dx,dy parameter.
     */
     switch (edge) {
 
     case LEFT: /* left */
-      p1 = ( px_ii >= llx ) ? 1 : 0;
-      p2 = ( px_jj >= llx ) ? 1 : 0;
-    /*
-      if ( px_ii >= llx ) 
-        p1=1;
-      else
-        p1=0;
-      if ( px_jj >= llx )
-        p2=1;
-      else
-        p2=0;
-    */
-
+      p1 = ( ax >= llx ) ? CROSSES : MISSES;
+      p2 = ( bx >= llx ) ? CROSSES : MISSES;
+      cx = llx;     
+      cy = lly;
+      dx = llx;     
+      dy = ury;
       break;
     case RIGHT:
-      p1 = ( px_ii <= urx ) ? 1 : 0;
-      p2 = ( px_jj <= urx ) ? 1 : 0;
-
-    /*
-      if ( px_ii <= urx ) 
-        p1=1;
-      else
-        p1=0;
-      if ( px_jj <= urx )
-        p2=1;
-      else
-        p2=0;
-        */
-
+      p1 = ( ax <= urx ) ? CROSSES : MISSES;
+      p2 = ( bx <= urx ) ? CROSSES : MISSES;
+      cx = urx;     
+      cy = lly;
+      dx = urx;     
+      dy = ury;
       break;
     case BOTTOM: /* bottom */
-
-        p1 = ( py_ii >= lly ) ? 1 : 0;
-        p2 = ( py_jj >= lly ) ? 1 : 0;
-    /*
-      if ( py_ii >= lly ) 
-        p1=1;
-      else
-        p1=0;
-      if ( py_jj >= lly )
-        p2=1;
-      else
-        p2=0;
-    */
+      p1 = ( ay >= lly ) ? CROSSES : MISSES;
+      p2 = ( by >= lly ) ? CROSSES : MISSES;
+      cx = llx;
+      cy = lly;
+      dx = urx;     
+      dy = lly;
       break;
     case TOP: /* top */
-        p1 = ( py_ii <= ury ) ? 1 : 0;
-        p2 = ( py_jj <= ury ) ? 1 : 0;
-
-    /*
-      if ( py_ii <= ury ) 
-        p1=1;
-      else
-        p1=0;
-      if ( py_jj <= ury )
-        p2=1;
-      else
-        p2=0;
-    */
-
+      p1 = ( ay <= ury ) ? CROSSES : MISSES;
+      p2 = ( by <= ury ) ? CROSSES : MISSES;
+      cx = llx;     
+      cy = ury;
+      dx = urx;     
+      dy = ury;
       break;
-
     }
 
     
+    /* check each side, see which it intersects */
     
-    if ( (1==p1) && (1==p2) ) { /* both points inside, add the jj-th one */
-      ret->contour->vertex[(*nout)].x = px_jj;
-      ret->contour->vertex[(*nout)].y = py_jj;
+    if ( (CROSSES==p1) && (CROSSES==p2) ) { /* both points CROSSES, add the jj-th one */
+      ret->contour->vertex[(*nout)].x = bx;
+      ret->contour->vertex[(*nout)].y = by;
       (*nout)++;
       continue;
-    } else if ( (0==p1) && (0==p2) ) {/* neither point inside */
+    } else if ( (MISSES==p1) && (MISSES==p2) ) {/* neither point CROSSES */
       /* do nothing */
       continue;
 
-    } else if (( (1==p1) && (0==p2) ) || ( (0==p1) && (1==p2))){  /* one or the other point inside */
-      /* check each side, see which it intersects */
+    } else if (( (CROSSES==p1) && (MISSES==p2) ) || ( (MISSES==p1) && (CROSSES==p2))){  /* one or the other point CROSSES */
+
+    /* If one point is CROSSES and the other is not, then we add 
+     * the point where the line segment between the two points intersects
+     * the edge.
+     * */
+     
 
       double dom, rr, ss;
-      double ax, bx, cx, dx;
-      double ay, by, cy, dy;
-      
-      ax = px_ii;  ay = py_ii;
-      bx = px_jj;  by = py_jj;
 
       /* basically solving eqn for a line; speed up? */
-
-      switch ( edge ) {
-
-      case LEFT: /* left */
-        
-        cx = llx;     cy = lly;
-        dx = llx;     dy = ury;
-        break;
-      
-      case RIGHT: /* right */
-        cx = urx;     cy = lly;
-        dx = urx;     dy = ury;
-        break;
-                
-      case BOTTOM: /* bottom */
-        cx = llx;     cy = lly;
-        dx = urx;     dy = lly;
-        
-        break;
-
-      case TOP: /* top */
-        cx = llx;     cy = ury;
-        dx = urx;     dy = ury;
-        break;
-
-      default: // shouldn't get here, make compiler happy
-        cx =0 ; cy = 0; dx = 0; dy = 0;
-        break;
-
-      } /* end switch */
 
       dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
       rr  = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
       ss  = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
         
+
+      /* dom is demonimator, if 0, then lines are parallel, no intersection */
       if ( 0 == dom ) continue;
       rr /= dom;
       ss /= dom;
@@ -213,9 +174,9 @@ int poly_clip( Polygon *pp, long qx, long qy,
       ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax); 
       ret->contour->vertex[(*nout)].y = ay+rr*(by-ay);
       (*nout)++;
-      if (0==p1) { // p1 is outside, means p2 is inside so add p2
-        ret->contour->vertex[(*nout)].x = px_jj;
-        ret->contour->vertex[(*nout)].y = py_jj;
+      if (CROSSES==p2) { // if p2 is CROSSES (means p1 is MISSES) so add p2
+        ret->contour->vertex[(*nout)].x = bx;
+        ret->contour->vertex[(*nout)].y = by;
         (*nout)++;
       }
 
