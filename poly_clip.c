@@ -85,6 +85,9 @@ int poly_clip( Polygon *pp, long qx, long qy,
     switch (edge) {
 
     case LEFT: /* left */
+      p1 = ( px_ii >= llx ) ? 1 : 0;
+      p2 = ( px_jj >= llx ) ? 1 : 0;
+    /*
       if ( px_ii >= llx ) 
         p1=1;
       else
@@ -93,9 +96,14 @@ int poly_clip( Polygon *pp, long qx, long qy,
         p2=1;
       else
         p2=0;
+    */
 
       break;
     case RIGHT:
+      p1 = ( px_ii <= urx ) ? 1 : 0;
+      p2 = ( px_jj <= urx ) ? 1 : 0;
+
+    /*
       if ( px_ii <= urx ) 
         p1=1;
       else
@@ -104,10 +112,14 @@ int poly_clip( Polygon *pp, long qx, long qy,
         p2=1;
       else
         p2=0;
-      
+        */
 
       break;
     case BOTTOM: /* bottom */
+
+        p1 = ( py_ii >= lly ) ? 1 : 0;
+        p2 = ( py_jj >= lly ) ? 1 : 0;
+    /*
       if ( py_ii >= lly ) 
         p1=1;
       else
@@ -116,9 +128,13 @@ int poly_clip( Polygon *pp, long qx, long qy,
         p2=1;
       else
         p2=0;
-
+    */
       break;
     case TOP: /* top */
+        p1 = ( py_ii <= ury ) ? 1 : 0;
+        p2 = ( py_jj <= ury ) ? 1 : 0;
+
+    /*
       if ( py_ii <= ury ) 
         p1=1;
       else
@@ -127,7 +143,7 @@ int poly_clip( Polygon *pp, long qx, long qy,
         p2=1;
       else
         p2=0;
-
+    */
 
       break;
 
@@ -139,6 +155,11 @@ int poly_clip( Polygon *pp, long qx, long qy,
       ret->contour->vertex[(*nout)].x = px_jj;
       ret->contour->vertex[(*nout)].y = py_jj;
       (*nout)++;
+      continue;
+    } else if ( (0==p1) && (0==p2) ) {/* neither point inside */
+      /* do nothing */
+      continue;
+
     } else if (( (1==p1) && (0==p2) ) || ( (0==p1) && (1==p2))){  /* one or the other point inside */
       /* check each side, see which it intersects */
 
@@ -149,7 +170,6 @@ int poly_clip( Polygon *pp, long qx, long qy,
       ax = px_ii;  ay = py_ii;
       bx = px_jj;  by = py_jj;
 
-
       /* basically solving eqn for a line; speed up? */
 
       switch ( edge ) {
@@ -158,97 +178,49 @@ int poly_clip( Polygon *pp, long qx, long qy,
         
         cx = llx;     cy = lly;
         dx = llx;     dy = ury;
-        
-        dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
-        rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
-        ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
-        
-        if ( 0 == dom ) continue;
-        rr /= dom;
-        ss /= dom;
-        
-        ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax); /* better be llx! */
-        ret->contour->vertex[(*nout)].y = ay+rr*(by-ay);
-        (*nout)++;
-        if (0==p1) {
-          ret->contour->vertex[(*nout)].x = px_jj;
-          ret->contour->vertex[(*nout)].y = py_jj;
-          (*nout)++;
-        }
-        continue; /* next ii */
-
+        break;
       
       case RIGHT: /* right */
         cx = urx;     cy = lly;
         dx = urx;     dy = ury;
-        
-        dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
-        rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
-        ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
-        
-        if ( 0 == dom ) continue;
-        rr /= dom;
-        ss /= dom;
-        
-        ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax); /* better be urx! */
-        ret->contour->vertex[(*nout)].y = ay+rr*(by-ay);
-        (*nout)++;
-        if (0==p1) {
-          ret->contour->vertex[(*nout)].x = px_jj;
-          ret->contour->vertex[(*nout)].y = py_jj;
-          (*nout)++;
-        }
-        continue; /* next ii */
-        
+        break;
+                
       case BOTTOM: /* bottom */
         cx = llx;     cy = lly;
         dx = urx;     dy = lly;
         
-        dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
-        rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
-        ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
-        
-        if ( 0 == dom ) continue;
-        rr /= dom;
-        ss /= dom;
-        
-        ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax);
-        ret->contour->vertex[(*nout)].y = ay+rr*(by-ay); /* better be lly */
-        (*nout)++;
-        if (0==p1) {
-          ret->contour->vertex[(*nout)].x = px_jj;
-          ret->contour->vertex[(*nout)].y = py_jj;
-          (*nout)++;
-        }
-        continue; /* next ii */
+        break;
 
       case TOP: /* top */
         cx = llx;     cy = ury;
         dx = urx;     dy = ury;
-        
-        dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
-        rr = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
-        ss = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
-        
-        if ( 0 == dom ) continue;
-        rr /= dom;
-        ss /= dom;
-        
-        ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax);
-        ret->contour->vertex[(*nout)].y = ay+rr*(by-ay); /* bette be ury */
-        (*nout)++;
-        if (0==p1) {
-          ret->contour->vertex[(*nout)].x = px_jj;
-          ret->contour->vertex[(*nout)].y = py_jj;
-          (*nout)++;
-        }
-        continue; /* next ii */
+        break;
+
+      default: // shouldn't get here, make compiler happy
+        cx =0 ; cy = 0; dx = 0; dy = 0;
+        break;
+
       } /* end switch */
 
-    } else if ( (0==p1) && (0==p2) ) {/* neither point inside */
-      /* do nothing */
-    } 
+      dom = (bx-ax)*(dy-cy)-(by-ay)*(dx-cx);
+      rr  = (ay-cy)*(dx-cx)-(ax-cx)*(dy-cy);
+      ss  = (ay-cy)*(bx-ax)-(ax-cx)*(by-ay);
+        
+      if ( 0 == dom ) continue;
+      rr /= dom;
+      ss /= dom;
+        
+      ret->contour->vertex[(*nout)].x = ax+rr*(bx-ax); 
+      ret->contour->vertex[(*nout)].y = ay+rr*(by-ay);
+      (*nout)++;
+      if (0==p1) { // p1 is outside, means p2 is inside so add p2
+        ret->contour->vertex[(*nout)].x = px_jj;
+        ret->contour->vertex[(*nout)].y = py_jj;
+        (*nout)++;
+      }
 
+
+    } // end else if p1 || p2 but not both
 
 
   } /* end loop over ii */
