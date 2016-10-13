@@ -18,7 +18,7 @@ So by reprojecting the image we are trying to perform the following operation
 
 
 $
-\left( x,y \right)  \stackrel{\mathit{WCS_{i}}}{\longrightarrow} \left(\alpha,\delta\right)  \stackrel{\mathit{WCS_{o}}}{\longrightarrow} \left( x',y' \right)
+\left( x,y \right)  \stackrel{\mathit{WCS_{i}}}{\longrightarrow} \left(\alpha,\delta\right)  \stackrel{\mathit{WCS_{o}^{-1}}}{\longrightarrow} \left( x',y' \right)
 $
 
 
@@ -83,7 +83,7 @@ This illustrates point ##2 above.  As only the discrete location of the pixels i
 But what if we go in the other direction?  Instead of mapping input pixels to output pixels, what if we reverse the operation
 
 $
-\left( x',y' \right)  \stackrel{\mathit{WCS_{o}}}{\longrightarrow} \left(\alpha,\delta\right)  \stackrel{\mathit{WCS_{i}}}{\longrightarrow} \left( x,y \right)
+\left( x',y' \right)  \stackrel{\mathit{WCS_{o}}}{\longrightarrow} \left(\alpha,\delta\right)  \stackrel{\mathit{WCS_{i}^{-1}}}{\longrightarrow} \left( x,y \right)
 $
 
 $
@@ -131,7 +131,7 @@ The `reproject_image` tool does this by considering each pixel to be a **square*
 
 
 $
-\left( x' \pm 0.5 ,y' \pm 0.5 \right)  \stackrel{\mathit{WCS_{o}}}{\longrightarrow} \left(\alpha,\delta\right)  \stackrel{\mathit{WCS_{i}}}{\longrightarrow} \left( x,y \right)
+\left( x' \pm 0.5 ,y' \pm 0.5 \right)  \stackrel{\mathit{WCS_{o}}}{\longrightarrow} \left(\alpha,\delta\right)  \stackrel{\mathit{WCS_{i}^{-1}}}{\longrightarrow} \left( x,y \right)
 $
 
 
@@ -251,7 +251,7 @@ For each count in each pixel it requires sampling the random stream twice (indep
 It also has to compute the 
 
 $
-\left( x,y \right)  \stackrel{\mathit{WCS_{i}}}{\longrightarrow} \left(\alpha,\delta\right)  \stackrel{\mathit{WCS_{o}}}{\longrightarrow} \left( x',y' \right)
+\left( x,y \right)  \stackrel{\mathit{WCS_{i}}}{\longrightarrow} \left(\alpha,\delta\right)  \stackrel{\mathit{WCS_{o}^{-1}}}{\longrightarrow} \left( x',y' \right)
 $
 
 coordinate transformation for each count in each pixel, which is generally an expensive computation (lots of trig functions).
@@ -281,6 +281,35 @@ This requires half as many random samples compared to the brute force method.  O
 The output from this algorithm is the same as the brute force method, ie these will all be valid outputs
 
 ![optimized](Doc/brute.png)
+
+---
+
+## Real World Example
+
+Below is a real-world example using data for `OBS_ID=4425`.
+
+The image below had the WCS shifted 
+
+```bash
+fluximage infile="acisf04425_repro_evt2.fits" outroot="test" bin="1"
+dmcopy infile="test_broad_thresh.img" outfile="shifted_test_broad_thresh.img" 
+wcs_update infile="shifted_test_broad_thresh.img" outfile="" transformfile="" \
+  wcsfile="shifted_test_broad_thresh.img" deltax="0.35" deltay="-0.67"  \
+  rotang="0" scalefac="1"
+```
+
+and then it is resampled back to the original WCS using `resample_image` 
+
+```bash
+resample_image infile="shifted_test_broad_thresh.img" \
+  matchfile="test_broad_thresh.img" outfile="resampled.out" \
+  resolution="1" quantum="1" coord_sys="world" randseed="12345" 
+```
+
+
+![obsid 4425](Doc/ds9_2.png)
+
+The left image is the orignal image with the shifted WCS.  The center image is the result of running the `reproject_image` tool.  Note that the pixel values are now floating point values.  The right image is the output from the `resample_image` tool.  The resample output is not identical to the input since the resampling is done via random sampling.
 
 ### A greedy alternative?
 
