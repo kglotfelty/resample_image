@@ -1,0 +1,11 @@
+prefix=@prefix@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: ascdm
+Description: GNU readline
+Version: 7.0
+Requires: cfitsio region
+Libs: -L${libdir} -lascdm
+Cflags: -I${includedir}
