@@ -4074,8 +4074,6 @@ fi
 
 
 
-#AC_SUBST(CXXLINK, CXX)
-
 # -- Hack to provide missing pkg-config files
 
 sed s,@prefix@,$prefix,g < pkgconfig/ascdm.pc.in > pkgconfig/ascdm.pc
