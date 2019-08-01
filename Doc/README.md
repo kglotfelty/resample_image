@@ -68,13 +68,13 @@ remap it to match an image with a binsize=1.
 
 Consider the following input image
 
-![Input Image](Doc/map_input.png)
+![Input Image](map_input.png)
 
 
 The colors are arbitrary and just show the different non-zero pixel values.  Now, if this image were remapped by 
 simply scaling the coordinates by a factor of 2, the output looks like:
 
-![Remapped Image](Doc/map_output.png)
+![Remapped Image](map_output.png)
 
 This illustrates point ##2 above.  As only the discrete location of the pixels in the input were mapped to the output, there are pixels in the output that are unreachable.  In this example it introduces a horizontal and vertical stripe that runs though the output image.
 
@@ -96,15 +96,15 @@ Unfortunately not.
 
 Taking a look at our input image again
 
-![Input Image](Doc/map_input.png) 
+![Input Image](map_input.png) 
 
 if we now show the location of the pixel centers in the output image
 
-![Output pixel locations](Doc/map_output_grid_1.0.png)
+![Output pixel locations](map_output_grid_1.0.png)
 
 and then show where those pixels map back to input
 
-![Output pixel locations](Doc/map_output_grid_2.0.png)
+![Output pixel locations](map_output_grid_2.0.png)
 
 we see that the same input location $(x,y)$ is mapped to multiple pixels in the output (the 1st problem mentioned above).
 
@@ -112,7 +112,7 @@ we see that the same input location $(x,y)$ is mapped to multiple pixels in the 
 
 The result then is that the input pixels are replicated multiple times in the output as shown here
 
-![Remapped output to input](Doc/map_output_rev.png)
+![Remapped output to input](map_output_rev.png)
 
 While at first this may be aesthetically pleasing, consider that we have now **quadrupled** the total pixel values 
 (in astronmy terms, quadrupled the flux), which is also unacceptable. 
@@ -149,19 +149,19 @@ The process is repeated for all output pixels, accumulating the fractional pixel
 
 Consider this simple image
 
-![infile](Doc/infile.png)
+![infile](infile.png)
 
 which is reprojected to a WCS that has a 0.25pixel shift in X and 0.33 pixel shift in Y.
 
-![shifted](Doc/shifted.png)
+![shifted](shifted.png)
 
 The input pixel maps to 4 output pixels, ie 4 polygons (here rectangles) with varying amount of overlap.  `reproject_image` computes these area 
 
-![area](Doc/area_weight.png)
+![area](area_weight.png)
 
 and then accumlated the output pixel values with those weighted values.
 
-![weight](Doc/area_reproject.png)
+![weight](area_reproject.png)
 
 
 The output then is an area weighted, flux preserving sum of the input pixels.
@@ -191,8 +191,8 @@ Since `reproject_image` outputs pixel values that represent an area weighted sum
 This results in a **truncation** of the pixel values and lost counts (or flux), when used in those tools.
 Consider if, in the above example output
 
-![infile](Doc/infile.png)
-![weight](Doc/area_reproject.png)
+![infile](infile.png)
+![weight](area_reproject.png)
 
 If the original pixel value was $1$, all of the output pixel values would be $<1$, which when truncated means that all
 the integer pixel values will be $0$.  In X-ray astronomy there are many pixels with a value of $1$ so this is a very
@@ -221,24 +221,24 @@ When we do this we cannot just take the discrete $(x,y)$ locations and perform t
 
 Instead we need to consider the pixel value as in integrated quantity, with counts accumulated over the pixel area.  When we do this then we can treat each individual count as having come from a _random_ location _within_ the pixel.
 
-![subpix](Doc/subpix_0_0_44595.png)
+![subpix](subpix_0_0_44595.png)
 
 Then if we convert each random _subpixel_ location through the WCS:
 
-![subpix shift](Doc/subpix_0.25_0.33_44595.png)
+![subpix shift](subpix_0.25_0.33_44595.png)
 
 and then accumulate the counts in the output :
 
-![subpix sum](Doc/brute_0.25_0.33_44595.png)
+![subpix sum](brute_0.25_0.33_44595.png)
 
 This then is the reprojected image by resampling the input.
 
 Of course this is now a random process, so the output will have some randomization.  Consider that these two 
 images (left) also show the same 10 counts shown above with a different random position, and the resulting output images (right).
 
-![subpix_rand_56789](Doc/56789.png)
+![subpix_rand_56789](56789.png)
 
-![subpix_rand_8832](Doc/8832.png)
+![subpix_rand_8832](8832.png)
 
 All three of these images are equally valid reprojections by randomly resampling the input image.
 
@@ -261,18 +261,18 @@ We can optimize this process by realizing that we do not care _where_ in the rep
 Using the fractional polygon/pixel overlap algorithm from `reproject_image` we 
 know what fraction of the pixel counts are expected to end up in which output pixels
 
-![area](Doc/area_weight.png)
+![area](area_weight.png)
 
 We then just need to think about these fractional areas as a probability distribution.  
 
-![pdf](Doc/pdf.png)
+![pdf](pdf.png)
 
 
 > Note: the order of the pixels is irrelevant and arbitrary.  The numbering here is clockwise from the center pixel.
 
 Then all we do is compute the cumulative probability distribution (CDF)
 
-![cdf](Doc/cdf.png)
+![cdf](cdf.png)
 
 Now for each count in each pixel we only need to sample 1 random value $\mathcal{R}(0:1)$ and then use the CDF to lookup which pixel to resample it into.  Philosophical debates about open vs. closed ranges are ignored.
 
@@ -280,7 +280,7 @@ This requires half as many random samples compared to the brute force method.  O
 
 The output from this algorithm is the same as the brute force method, ie these will all be valid outputs
 
-![optimized](Doc/brute.png)
+![optimized](brute.png)
 
 ---
 
@@ -307,7 +307,7 @@ resample_image infile="shifted_test_broad_thresh.img" \
 ```
 
 
-![obsid 4425](Doc/ds9_2.png)
+![obsid 4425](ds9_2.png)
 
 The left image is the orignal image with the shifted WCS.  The center image is the result of running the `reproject_image` tool.  Note that the pixel values are now floating point values.  The right image is the output from the `resample_image` tool.  The resample output is not identical to the input since the resampling is done via random sampling.
 
