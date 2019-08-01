@@ -1,4 +1,4 @@
-SUBDIRS = src wrapper
+SUBDIRS = src wrapper test
 
 EXTRA_DIST = pkgconfig
 

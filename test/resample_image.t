@@ -253,8 +253,8 @@ do
  
   esac
 
-  echo "ciaorun ./"$test1_string | tee -a  $LOGFILE 
-  eval "ciaorun ./"$test1_string  | tee -a  $LOGFILE  2>&1
+  echo $test1_string | tee -a  $LOGFILE 
+  eval $test1_string  | tee -a  $LOGFILE  2>&1
  
 
   ####################################################################

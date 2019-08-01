@@ -17,3 +17,4 @@ dist_param_DATA = $(tool).par
 install-data-hook:
 	chmod 444 $(paramdir)/$(dist_param_DATA)
 #chmod 444 $(ahelpdir)/$(dist_ahelp_DATA)
+

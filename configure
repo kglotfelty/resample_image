@@ -4833,7 +4833,7 @@ fi
 
 # -------------- Which files to configure ----------
 
-ac_config_files="$ac_config_files Makefile src/Makefile wrapper/Makefile"
+ac_config_files="$ac_config_files Makefile src/Makefile wrapper/Makefile test/Makefile"
 
 
 ac_config_files="$ac_config_files wrapper/resample_image:wrapper/wrapper.sh"
@@ -5494,6 +5494,7 @@ do
     "Makefile") CONFIG_FILES="$CONFIG_FILES Makefile" ;;
     "src/Makefile") CONFIG_FILES="$CONFIG_FILES src/Makefile" ;;
     "wrapper/Makefile") CONFIG_FILES="$CONFIG_FILES wrapper/Makefile" ;;
+    "test/Makefile") CONFIG_FILES="$CONFIG_FILES test/Makefile" ;;
     "wrapper/resample_image") CONFIG_FILES="$CONFIG_FILES wrapper/resample_image:wrapper/wrapper.sh" ;;
 
   *) { { $as_echo "$as_me:$LINENO: error: invalid argument: $ac_config_target" >&5

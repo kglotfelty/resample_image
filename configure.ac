@@ -53,6 +53,7 @@ AC_CONFIG_FILES([
   Makefile
   src/Makefile
   wrapper/Makefile
+  test/Makefile
 ])
 
 AC_CONFIG_FILES([wrapper/resample_image:wrapper/wrapper.sh],[chmod +x wrapper/resample_image])
