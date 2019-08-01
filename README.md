@@ -10,5 +10,8 @@ reproject an image from one World Coordinate System (WCS) to another.
 The existing [`reproject_image`](http://cxc.cfa.harvard.edu/ciao/ahelp/reproject_image.html)
 tool does this by dividing the flux in each input pixel into each output 
 pixel.  This is inappropriate when then input image has integer values
-(eg X-ray counts).
+(eg X-ray counts).  To preserve the Poisson nature of the data we need
+to preserve integer counts so we need to **resample** the image.
+
+
 
