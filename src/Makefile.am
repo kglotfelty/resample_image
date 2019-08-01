@@ -8,8 +8,8 @@ binexe_PROGRAMS = $(tool)
 
 resample_image_SOURCES = poly_clip.c resample_img.c t_resample_img.c
 resample_image_CPPFLAGS = $(CIAO_CFLAGS)
-resample_image_LDADD = $(CIAO_LIBS) -ldmimgio
-resample_image_LINK = $(CXX) -o $@
+resample_image_LDADD = $(CIAO_LIBS) -ldmimgio 
+resample_image_LINK = $(CXX) -o $@ -Wl,-rpath,$(prefix)/lib -Wl,-rpath,$(prefix)/ots/lib 
 
 dist_param_DATA = $(tool).par
 #dist_ahelp_DATA = $(tool).xml
