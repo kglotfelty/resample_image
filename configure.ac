@@ -47,6 +47,13 @@ PKG_CHECK_MODULES( [CIAO], [
   ds
 ])
 
+# -------- dmimgio.h ------------
+foo=$CPPFLAGS
+CPPFLAGS=$CIAO_CFLAGS
+AC_CHECK_HEADER( dmimgio.h, [], 
+  AC_MSG_ERROR([Cannot locate dmimgio.h header file], [1])
+)
+CPPFLAGS=$foo
 
 
 # ------------
