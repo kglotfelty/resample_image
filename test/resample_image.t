@@ -101,9 +101,7 @@ toolname="resample_image"
 
 # set up list of tests
 # !!4
-#alltests="test_full test_quick test_physical test_logical test_average full_calcgti"
-alltests="test_full test_physical test_logical test_average full_calcgti"
-# test_hst test_hst2 test_2mass"
+alltests="test_full test_physical test_logical test_average full_calcgti test_hst2 test_2mass"
 
 # "short" test to run
 # !!5
@@ -179,7 +177,6 @@ fi
 # files will both exist and be empty, and will pass a diff.
 
 find_tool dmdiff
-find_tool dmimgcalc
 
 
 
@@ -218,36 +215,26 @@ do
   # run the tool
   case ${testid} in
     # !!6
-    test_full ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=1 clob+ coord=world lookupTab=${lkTab1}"
+    test_full ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=1 clob+ coord=world lookupTab=${lkTab1} rand=123456"
             ;;
 
     # same as test_full except using calcgti/lkTab2
-    full_calcgti ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=1 clob+ coord=world lookupTab=${lkTab2}"
+    full_calcgti ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=1 clob+ coord=world lookupTab=${lkTab2} rand=123456"
             ;;
 
-    ##test_quick ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=0 clob+ coord=world lookupTab=${lkTab1}"
-    ##        ;;
-
-    test_physical ) test1_string="resample_image infile=$INDIR/acisf04731N001_full_img2.fits matchfile=$INDIR/bin16.fits outfile=$outfile res=1 clob+ coord=physical lookupTab=${lkTab1}"
+    test_physical ) test1_string="resample_image infile=$INDIR/acisf04731N001_full_img2.fits matchfile=$INDIR/bin16.fits outfile=$outfile res=1 clob+ coord=physical lookupTab=${lkTab1} rand=123456"
             ;;
 
-    test_logical ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=1 clob+ coord=logical lookupTab=${lkTab1}"
+    test_logical ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=1 clob+ coord=logical lookupTab=${lkTab1} rand=123456"
             ;;
 
-    test_average ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=2 clob+ coord=world meth=average lookupTab=${lkTab1}"
+    test_average ) test1_string="resample_image infile=$INDIR/acisf00934N002_full_img2.fits matchfile=$INDIR/acisf04731N001_full_img2.fits outfile=$outfile res=2 clob+ coord=world lookupTab=${lkTab1} rand=123456"
             ;;
 
-    test_hst ) test1_string="resample_image infile=$INDIR/orion_hst.fits matchfile=$INDIR/orion_chandra.fits outfile=$outfile res=1 clob+ coord=world meth=sum lookupTab=${lkTab1}"
+    test_hst2 ) test1_string="resample_image matchfile=$INDIR/orion_hst.fits infile=$INDIR/orion_chandra.fits outfile=$outfile res=1 clob+ coord=world lookupTab=${lkTab1} rand=123456"
             ;;
 
-#
-# same as above but use hst as match file, chandra as ref.
-#
-
-    test_hst2 ) test1_string="resample_image matchfile=$INDIR/orion_hst.fits infile=$INDIR/orion_chandra.fits outfile=$outfile res=1 clob+ coord=world meth=sum lookupTab=${lkTab1}"
-            ;;
-
-    test_2mass ) test1_string="resample_image infile=$INDIR/orion_2mass.fits matchfile=$INDIR/orion_chandra.fits outfile=$outfile res=1 clob+ coord=world meth=sum lookupTab=${lkTab1}"
+    test_2mass ) test1_string="resample_image matchfile=$INDIR/orion_2mass.fits infile=$INDIR/orion_chandra.fits outfile=$outfile res=1 clob+ coord=world lookupTab=${lkTab1} rand=123456"
             ;;
 
  
@@ -266,73 +253,15 @@ do
   # if different tests need different kinds of comparisons, use a 
   #  case ${testid} in...  here
 
-  ####################################################################
-  # FITS table    (duplicate for as many tables per test as needed)
-
-  # new output
-  # !!10
-#dmlist $outfile header,data,array > $OUTDIR/${testid}.dmp1  2>>$LOGFILE
-#keyfilter $OUTDIR/${testid}.dmp1 $OUTDIR/${testid}.dmp2  2>>$LOGFILE
-
-  # reference output
-  # !!11
-#dmlist $savfile header,data,array > $OUTDIR/${testid}.dmp1_std  2>>$LOGFILE
-#keyfilter $OUTDIR/${testid}.dmp1_std $OUTDIR/${testid}.dmp2_std \
-#          2>>$LOGFILE
-
-  # compare
-  # !!12
-#diff $OUTDIR/${testid}.dmp2 $OUTDIR/${testid}.dmp2_std > \
-#     /dev/null 2>>$LOGFILE
 
 
-dmdiff $outfile $savfile tol=$SAVDIR/tolerance > /dev/null 2>>$LOGFILE
-if  test $? -ne 0 ; then
-  echo "ERROR: MISMATCH in $outfile" >> $LOGFILE
-  mismatch=0
-fi
+  dmdiff $outfile $savfile tol=$SAVDIR/tolerance > /dev/null 2>>$LOGFILE
+  if  test $? -ne 0 ; then
+    echo "ERROR: MISMATCH in $outfile" >> $LOGFILE
+    mismatch=0
+  fi
 
 
-  ####################################################################
-  # FITS image  (duplicate for as many images per test as needed)
-
-  # check image
-  # !!13
-#   dmimgcalc "$outfile[1]" "$savfile[1]" none tst verbose=0   2>>$LOGFILE
-#   if test $? -ne 0; then
-#     echo "ERROR: DATA MISMATCH in $outfile" >> $LOGFILE
-#     mismatch=0
-#   fi
-
-  #  Check the header of the image
-
-  # !!14
-  # dmlist $outfile header > $OUTDIR/${testid}.dmp1  2>>$LOGFILE
-  # keyfilter $OUTDIR/${testid}.dmp1 $OUTDIR/${testid}.dmp2  2>>$LOGFILE
-
-  # !!15
-  # dmlist $savfile header > $OUTDIR/${testid}.dmp1_std  2>>$LOGFILE
-  # keyfilter $OUTDIR/${testid}.dmp1_std $OUTDIR/${testid}.dmp2_std \
-  #            2>>$LOGFILE
-
-  # compare
-  # !!16
-#   dmdiff $outfile $savfile tol=$SAVDIR/tolerance verb=0 > \
-#         /dev/null 2>>$LOGFILE
-#   if  test $? -ne 0 ; then
-#     echo "ERROR: HEADER MISMATCH in $outfile" >> $LOGFILE
-#     mismatch=0
-#   fi
-
-  ######################################################################
-  # ascii files
-  # !!17
-  # diff $OUTDIR/${testid}.txt $OUTDIR/${testid}.txt_std > \
-  #       /dev/null 2>>$LOGFILE
-  # if  test $? -ne 0 ; then
-  #   echo "ERROR: TEXT MISMATCH in $OUTDIR/${testid}.txt" >> $LOGFILE
-  #   mismatch=0
-  # fi
 
   ####################################################################
   # Did we get an error?

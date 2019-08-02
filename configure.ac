@@ -47,6 +47,14 @@ PKG_CHECK_MODULES( [CIAO], [
   ds
 ])
 
+
+
+# ------------
+
+AM_CONDITIONAL([LINUX], [test x`uname` == xLinux])
+
+
+
 # -------------- Which files to configure ----------
 
 AC_CONFIG_FILES([

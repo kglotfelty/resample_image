@@ -11,6 +11,11 @@ resample_image_CPPFLAGS = $(CIAO_CFLAGS)
 resample_image_LDADD = $(CIAO_LIBS) -ldmimgio 
 resample_image_LINK = $(CXX) -o $@ -Wl,-rpath,$(prefix)/lib -Wl,-rpath,$(prefix)/ots/lib 
 
+if LINUX
+resample_image_LDADD += -L$(prefix)/ots/lib -lstdc++
+endif
+
+
 dist_param_DATA = $(tool).par
 #dist_ahelp_DATA = $(tool).xml
 

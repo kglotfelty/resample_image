@@ -34,6 +34,7 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 binexe_PROGRAMS = $(am__EXEEXT_1)
+@LINUX_TRUE@am__append_1 = -L$(prefix)/ots/lib -lstdc++
 subdir = src
 DIST_COMMON = $(dist_param_DATA) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in
@@ -52,7 +53,8 @@ am_resample_image_OBJECTS = resample_image-poly_clip.$(OBJEXT) \
 	resample_image-t_resample_img.$(OBJEXT)
 resample_image_OBJECTS = $(am_resample_image_OBJECTS)
 am__DEPENDENCIES_1 =
-resample_image_DEPENDENCIES = $(am__DEPENDENCIES_1)
+resample_image_DEPENDENCIES = $(am__DEPENDENCIES_1) \
+	$(am__DEPENDENCIES_1)
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -183,7 +185,7 @@ paramdir = $(prefix)/param
 ahelpdir = $(prefix)/share/doc/xml
 resample_image_SOURCES = poly_clip.c resample_img.c t_resample_img.c
 resample_image_CPPFLAGS = $(CIAO_CFLAGS)
-resample_image_LDADD = $(CIAO_LIBS) -ldmimgio 
+resample_image_LDADD = $(CIAO_LIBS) -ldmimgio $(am__append_1)
 resample_image_LINK = $(CXX) -o $@ -Wl,-rpath,$(prefix)/lib -Wl,-rpath,$(prefix)/ots/lib 
 dist_param_DATA = $(tool).par
 all: all-am
