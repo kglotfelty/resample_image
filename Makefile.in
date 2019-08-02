@@ -142,6 +142,7 @@ PACKAGE_TARNAME = @PACKAGE_TARNAME@
 PACKAGE_VERSION = @PACKAGE_VERSION@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 PKG_CONFIG = @PKG_CONFIG@
+SED = @SED@
 SET_MAKE = @SET_MAKE@
 SHELL = @SHELL@
 STRIP = @STRIP@
@@ -659,7 +660,7 @@ uninstall-am:
 
 
 distclean-local:
-	-rm -f pkgconfig/ascdm.pc pkgconfig/readline.pc pkgconfig/region.pc
+	-rm -f pkgconfig/*.pc
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
