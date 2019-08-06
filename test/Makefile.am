@@ -6,11 +6,10 @@ TESTSAV=save_data; \
 TESTOUT=delme; \
 TESTLOG=delme; \
 TESTRUN=delme; \
-export TESTIN TESTSAV TESTOUT TESTLOG TESTRUN; \
-PATH=$(PATH):$(top_srcdir)/src;\
 PFILES=$(TESTOUT)\;$(top_srcdir)/src:$(prefix)/param:$(prefix)/contrib/param; \
-LD_LIBRARY_PATH=$(prefix)/lib:$(prefix)/ots/lib \
-source $(prefix)/bin/ciao.sh;
+PATH=$(top_srcdir)/src:$(prefix)/bin:$(prefix)/ots/bin:$(PATH); \
+ASCDS_INSTALL=$(prefix); \
+export TESTIN TESTSAV TESTOUT TESTLOG TESTRUN PFILES LD_LIBRARY_PATH ASCDS_INSTALL; 
 
 clean-local:
 	-rm -rf delme
