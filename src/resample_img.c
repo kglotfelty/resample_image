@@ -788,6 +788,11 @@ int write_output( Parameters *pars, Image *refImage, double *out_data, long num_
   dmBlock *outBlock = NULL;
   dmDescriptor *outDesc;
   
+  char unit[100];
+  dmGetUnit( dmImageGetDataDescriptor( refImage->block), unit, 99 );
+  memset(unit, 0, 100);
+    
+  
   if ( NULL == ( outBlock = dmImageCreate( pars->outfile, dmLONG,refImage->lAxes,2 ))){
       err_msg("ERROR: Cannot create output image '%s'\n", pars->outfile );
       return(-1);
@@ -795,6 +800,7 @@ int write_output( Parameters *pars, Image *refImage, double *out_data, long num_
   outDesc = dmImageGetDataDescriptor( outBlock );
   putHdr( outBlock, hdrDM_FILE, outhdr, ALL_STS, "resample_image");
   put_param_hist_info( outBlock, "resample_image", NULL, 0 );
+  dmSetUnit( outDesc, unit );
   dmBlockCopyWCS( refImage->block, outBlock);
   dmSetArray_d( outDesc, out_data, refImage->lAxes[0]*refImage->lAxes[1]);
   dmImageClose( outBlock );
