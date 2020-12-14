@@ -1,32 +1,9 @@
-AC_INIT([resample_image], [1.0.0], [glotfeltyk@si.edu])
+AC_INIT([resample_image], [4.13.0], [glotfeltyk@si.edu])
 AM_INIT_AUTOMAKE([foreign -Wall])
 AC_PROG_CC
 AM_PROG_CC_C_O
 AC_PROG_CXX
 AC_PROG_SED
-
-# -- Hack to provide missing & corrupt pkg-config files
-
-#~ ## Missing .pc files: ascdm, region, and readline(?)
-#~ for p in pkgconfig/*pc.in
-#~ do
-  #~ o=`echo $p | sed 's,\.in$,,'`  
-  #~ sed s,@prefix@,$prefix,g < $p > $o
-#~ done
-
-#~ ## caldb in ciao4.11 is bad; fixed in 4.12
-#~ cat $prefix/lib/pkgconfig/caldb4.pc | \
-  #~ sed 's,^Libs:.*,Libs: -L${libdir} -lcaldb4,' | \
-  #~ sed 's,^Cflags:.*,Cflags: -I${includedir},' > pkgconfig/caldb4.pc 
-
-#~ ## Some OTS have hard coded /proj stuff
-#~ if test -e $prefix/ots/lib/pkgconfig
-#~ then
-    #~ for p in cfitsio fftw3 fftw3f gsl xpa
-    #~ do
-        #~ sed "s,^prefix=.*,prefix=$prefix/ots," < $prefix/ots/lib/pkgconfig/${p}.pc > pkgconfig/${p}.pc
-    #~ done
-#~ fi
 
 # -- Readline -- there has got to be a better way to do this ?
 
