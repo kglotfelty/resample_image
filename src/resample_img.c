@@ -789,8 +789,8 @@ int write_output( Parameters *pars, Image *refImage, double *out_data, long num_
   dmDescriptor *outDesc;
   
   char unit[100];
-  dmGetUnit( dmImageGetDataDescriptor( refImage->block), unit, 99 );
   memset(unit, 0, 100);
+  dmGetUnit( dmImageGetDataDescriptor( refImage->block), unit, 99 );
     
   
   if ( NULL == ( outBlock = dmImageCreate( pars->outfile, dmLONG,refImage->lAxes,2 ))){
