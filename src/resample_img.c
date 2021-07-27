@@ -29,6 +29,7 @@
 #include <stdlib.h>
 
 #include "resample_img.h"
+#include <dmimgio.h>
 
 /* 
    These typedef's define a) an enumerated type to be used to know which trans
@@ -41,17 +42,6 @@ typedef struct { dmDescriptor *xaxis; dmDescriptor *yaxis; } Axes;
 typedef struct { Axes physical; Axes world; } WCS;
 typedef struct { WCS ref; WCS image; } WCS_Descriptors;
 
-
-/* Hold info for an input image */
-typedef struct {
-  void *data;        // pixel values
-  dmDataType dt;     // pixel datatype
-  long *lAxes;       // axis lenghts
-  short *mask;        // mask of valid pixels
-  dmDescriptor *xdesc;  // X (or sky) coordinate descriptor
-  dmDescriptor *ydesc;  // Y coordinate descriptor
-  dmBlock *block; // The block image came from
-} Image;
 
 /* Input parameters */
 typedef struct {
@@ -91,7 +81,6 @@ double get_contour_area( Polygons *poly, long xx, long yy );
 int fill_polygon( long subpix, long xx, long yy, VertexList *refpixlist, WCS_Descriptors *descs, CoordType ctype);
 int convert_coords( double *refpix, WCS_Descriptors *descs, double *imgpix, CoordType ctype);
 int check_coords( CoordType ctype, WCS_Descriptors descs );
-Image *load_image_file( dmBlock *inBlock );
 Polygon *make_polygon(int subpix);
 int find_bounding_box( Polygon *ref_poly, long *lAxes, long *xx_min, long *xx_max, long *yy_min, long*yy_max) ;
 Parameters* get_parameters(void);
@@ -116,41 +105,6 @@ int write_output( Parameters *pars, Image *refImage, double *out_data, long num_
 
 
 /* Load image file.  This uses the routines defined in dmimgio.h */
-#include <dmimgio.h>
-#include <cxcregion.h>
-
-Image *load_image_file( dmBlock *inBlock )
-{
-  dmDataType dt;
-  void *data=NULL;
-  long *lAxes=NULL;
-
-  regRegion *dss=NULL;
-  long null;
-  short has_null;
-
-  short *mask=NULL;
-  dmDescriptor *xdesc=NULL;
-  dmDescriptor *ydesc=NULL;
-
-  /* Read input */
-
-  dt = get_image_data( inBlock, &data, &lAxes, &dss, &null, &has_null );
-  get_image_wcs( inBlock, &xdesc, &ydesc );
-  mask = get_image_mask( inBlock, data, dt, lAxes, dss, null, has_null, 
-                         xdesc, ydesc );
-
-  Image *img = (Image*)calloc( 1,sizeof(Image));
-  img->dt = dt;
-  img->data = data;
-  img->lAxes = lAxes;
-  img->mask = mask;
-  img->xdesc = xdesc;
-  img->ydesc = ydesc;
-  img->block = inBlock;
-
-  return(img);
-}
 
 
 void free_image( Image *img )
@@ -498,14 +452,8 @@ Parameters *get_parameters(void)
 Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs)
 {
   Image *refImage;
-  dmBlock *blk;
-
-  if ( NULL == ( blk = dmImageOpen( pars->reffile) ) ) {
-      err_msg("ERROR: Cannot open image '%s'\n", pars->reffile );
-      return(NULL);
-  }
   
-  if ( NULL == ( refImage = load_image_file( blk ))) {
+  if ( NULL == ( refImage = load_image( pars->reffile ))) {
       err_msg("ERROR: Cannot open image '%s'\n", pars->reffile );
       return(NULL);      
   }
@@ -523,19 +471,12 @@ Image *load_ref_image( Parameters *pars, WCS_Descriptors *descs)
 Image *load_infile_image(Parameters *pars, char *infile, Header_Type **hdr, WCS_Descriptors *descs  )
 {
     Image *inImage;
-    dmBlock *blk;
 
     if ( pars->verbose > 1 ) {
       printf("\nProcessing input file '%s'\n", infile );
     }
      
-    /* Now load the image */
-    if ( NULL == ( blk = dmImageOpen( infile) ) ) {
-      err_msg("ERROR: Cannot open image '%s'\n", infile );
-      return(NULL);
-    }
-
-    if ( NULL == ( inImage = load_image_file( blk ))) {
+    if ( NULL == ( inImage = load_image( infile ))) {
       err_msg("ERROR: Cannot open image '%s'\n", infile );
       return(NULL);        
     }
@@ -725,7 +666,7 @@ int process_infile( Image *inImage, Image *refImage, WCS_Descriptors *descs, Par
 
         /* get image value; */
         double val;
-        val = get_image_value( inImage->data, inImage->dt, mm, nn, inImage->lAxes, inImage->mask );
+        val = get_image_value( inImage, mm, nn);
         if (is_invalid_val(val)) continue;
 
         /* This creates a polygon around output pixel mm,nn                */        
