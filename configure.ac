@@ -1,4 +1,4 @@
-AC_INIT([resample_image], [4.16.0], [glotfeltyk@si.edu])
+AC_INIT([resample_image], [4.18.0], [glotfeltyk@si.edu])
 AM_INIT_AUTOMAKE([foreign -Wall])
 AM_MAINTAINER_MODE([disable])
 AC_PROG_CC
@@ -49,7 +49,7 @@ PKG_CHECK_MODULES( [CIAO], [
 # -------- dmimgio.h ------------
 foo=$CPPFLAGS
 CPPFLAGS=$CIAO_CFLAGS
-AC_CHECK_HEADER( dmimgio.h, [], 
+AC_CHECK_HEADER( dmimgio.h, [],
   AC_MSG_ERROR([Cannot locate dmimgio.h header file], [1])
 )
 CPPFLAGS=$foo
@@ -75,4 +75,4 @@ AC_CONFIG_FILES([wrapper/resample_image:wrapper/wrapper.sh],[chmod +x wrapper/re
 # -- Go! -----------
 
 AC_OUTPUT
-  
+
