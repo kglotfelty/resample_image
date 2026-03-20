@@ -88,7 +88,6 @@ NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
 binexe_PROGRAMS = $(am__EXEEXT_1)
-@LINUX_TRUE@am__append_1 = -L$(prefix)/ots/lib -lstdc++
 subdir = src
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
@@ -107,8 +106,7 @@ am_resample_image_OBJECTS = resample_image-poly_clip.$(OBJEXT) \
 	resample_image-t_resample_img.$(OBJEXT)
 resample_image_OBJECTS = $(am_resample_image_OBJECTS)
 am__DEPENDENCIES_1 =
-resample_image_DEPENDENCIES = $(am__DEPENDENCIES_1) \
-	$(am__DEPENDENCIES_1)
+resample_image_DEPENDENCIES = $(am__DEPENDENCIES_1)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -304,8 +302,8 @@ paramdir = $(prefix)/param
 ahelpdir = $(prefix)/share/doc/xml
 resample_image_SOURCES = poly_clip.c resample_img.c t_resample_img.c
 resample_image_CPPFLAGS = $(CIAO_CFLAGS)
-resample_image_LDADD = $(CIAO_LIBS) $(am__append_1)
-resample_image_LINK = $(CXX) -o $@ -Wl,-rpath,$(prefix)/lib -Wl,-rpath,$(prefix)/ots/lib 
+resample_image_LDADD = $(CIAO_LIBS)
+resample_image_LINK = $(CXX) -o $@ -Wl,-rpath,$(prefix)/lib
 dist_param_DATA = $(tool).par
 all: all-am
 
